@@ -276,7 +276,11 @@
   .card:hover { border-color: var(--border-strong); }
   .card.dragging { opacity: 0.4; }
   .card-text { outline: none; }
-  .card-text[contenteditable="true"] { cursor: text; }
+  .card-text[contenteditable="true"] {
+    cursor: text;
+    -webkit-user-select: text;
+    user-select: text;
+  }
 
   .card-add-slot {
     flex-shrink: 0;
@@ -479,7 +483,14 @@
     padding: 0 8px;
   }
   .unsorted-input {
+    display: block;
     width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    min-height: 34px;
+    max-height: 200px;
+    resize: none;
+    overflow-y: hidden;
     background: var(--card-bg);
     border: 0.5px solid var(--border);
     border-radius: var(--radius-md);
@@ -489,6 +500,8 @@
     font-size: 13.5px;
     outline: none;
     transition: border-color 0.12s;
+    line-height: normal;
+    vertical-align: top;
   }
   .unsorted-input:focus { border-color: var(--border-strong); }
   .unsorted-input::placeholder { color: var(--text-muted); }
@@ -578,7 +591,12 @@
     border-radius: 3px;
     min-width: 0;
   }
-  .unsorted-text[contenteditable="true"] { cursor: text; background: var(--surface-2); }
+  .unsorted-text[contenteditable="true"] {
+    cursor: text;
+    background: var(--surface-2);
+    -webkit-user-select: text;
+    user-select: text;
+  }
   .unsorted-item.done .unsorted-text {
     text-decoration: line-through;
     color: var(--text-muted);
@@ -1109,7 +1127,7 @@
   <div class="panel-resize" id="panelResize" title="Drag to resize · click to open or close"></div>
   <div class="side-header"><h2>Unsorted Items</h2></div>
   <div class="unsorted-input-wrap">
-    <input type="text" class="unsorted-input" id="unsortedInput" placeholder="Add an unsorted item · Enter" />
+    <textarea class="unsorted-input" id="unsortedInput" rows="1" placeholder="Add an unsorted item · Enter to add" autocomplete="off" spellcheck="false"></textarea>
   </div>
   <div class="unsorted-list" id="unsortedList"></div>
 </aside>
@@ -1337,12 +1355,40 @@
   // ============================================================
   // UTIL
   // ============================================================
-  function selectAllText(el) {
+  function placeCaretAtEnd(el) {
     const range = document.createRange();
     range.selectNodeContents(el);
+    range.collapse(false);
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
+  }
+
+  /** Move caret to the text offset under (clientX, clientY) if it lies inside el. */
+  function placeCaretFromPoint(el, clientX, clientY) {
+    if (clientX == null || clientY == null) return false;
+    let range = null;
+    try {
+      if (document.caretRangeFromPoint) {
+        range = document.caretRangeFromPoint(clientX, clientY);
+      } else if (document.caretPositionFromPoint) {
+        const p = document.caretPositionFromPoint(clientX, clientY);
+        if (p && p.offsetNode) {
+          range = document.createRange();
+          const node = p.offsetNode;
+          const max = node.nodeType === Node.TEXT_NODE ? node.length : node.childNodes.length;
+          range.setStart(node, Math.min(Math.max(0, p.offset), max));
+          range.collapse(true);
+        }
+      }
+    } catch (_) {
+      return false;
+    }
+    if (!range || !el.contains(range.startContainer)) return false;
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
   }
 
   // Add a protocol if missing. mailto: and other custom schemes pass through.
@@ -1447,20 +1493,31 @@
 
   // Generic editable text. Single-line for titles; multi-line for cards.
   function makeEditable(el, getCurrent, onCommit, opts = {}) {
-    const { multiline = false, onEnter = null } = opts;
+    const { multiline = false, onEnter = null, clientX, clientY, draggableHost } = opts;
+    let savedDraggable = null;
+    if (draggableHost) {
+      savedDraggable = draggableHost.draggable;
+      draggableHost.draggable = false;
+    }
     el.setAttribute('contenteditable', 'true');
     el.focus();
-    selectAllText(el);
+    requestAnimationFrame(() => {
+      if (el.getAttribute('contenteditable') !== 'true') return;
+      if (!placeCaretFromPoint(el, clientX, clientY)) {
+        placeCaretAtEnd(el);
+      }
+    });
 
     let enterPressed = false;
 
     const finish = () => {
+      el.removeEventListener('blur', finish);
+      el.removeEventListener('keydown', onKey);
       el.removeAttribute('contenteditable');
+      if (draggableHost) draggableHost.draggable = savedDraggable;
       const raw = multiline ? el.innerText : el.textContent;
       const newText = raw.replace(/\r\n/g, '\n').trim();
       onCommit(newText);
-      el.removeEventListener('blur', finish);
-      el.removeEventListener('keydown', onKey);
       if (enterPressed && onEnter) onEnter();
     };
     const onKey = (e) => {
@@ -1934,7 +1991,8 @@
             row.title = newText;
             saveState();
           }
-        }
+        },
+        { clientX: e.clientX, clientY: e.clientY }
       );
     });
 
@@ -2146,7 +2204,8 @@
             col.title = newText;
             saveState();
           }
-        }
+        },
+        { clientX: e.clientX, clientY: e.clientY }
       );
     });
 
@@ -2372,7 +2431,7 @@
       if (textEl.getAttribute('contenteditable') === 'true') return;
       // Don't enter edit mode if a chip was clicked
       if (e.target.closest('.card-link, .card-tag')) return;
-      startCardEdit(card, col, textEl);
+      startCardEdit(card, col, textEl, e.clientX, e.clientY);
     });
 
     cardEl.addEventListener('contextmenu', (e) => {
@@ -2405,7 +2464,7 @@
   }
 
   // Inline-edit the card's main text. Extracted so the context menu can call it.
-  function startCardEdit(card, col, textEl) {
+  function startCardEdit(card, col, textEl, clientX, clientY) {
     const colIdAtEdit = col.id;
     makeEditable(textEl,
       () => card.text,
@@ -2423,6 +2482,9 @@
       },
       {
         multiline: true,
+        clientX,
+        clientY,
+        draggableHost: textEl.closest('.card'),
         onEnter: () => {
           const stillExists = state.rows
             .flatMap(r => r.columns)
@@ -2490,6 +2552,7 @@
         },
         {
           multiline: true,
+          draggableHost: t.closest('.card'),
           onEnter: () => {
             // If the card was empty (and thus self-deleted), don't chain.
             const stillExists = state.rows
@@ -2578,6 +2641,20 @@
   const unsortedList = document.getElementById('unsortedList');
   const unsortedInput = document.getElementById('unsortedInput');
   const sidePanel = document.getElementById('sidePanel');
+  const UNSORTED_INPUT_MAX_H = 200;
+
+  function syncUnsortedInputHeight() {
+    const el = unsortedInput;
+    el.style.height = 'auto';
+    el.style.overflowY = 'hidden';
+    const h = el.scrollHeight;
+    if (h > UNSORTED_INPUT_MAX_H) {
+      el.style.height = `${UNSORTED_INPUT_MAX_H}px`;
+      el.style.overflowY = 'auto';
+    } else {
+      el.style.height = `${Math.max(h, 34)}px`;
+    }
+  }
 
   function renderUnsorted() {
     unsortedList.innerHTML = '';
@@ -2626,7 +2703,10 @@
     const textEl = document.createElement('div');
     textEl.className = 'unsorted-text';
     fillUnsortedTextWithLinks(textEl, item.text);
-    textEl.addEventListener('mousedown', (e) => e.stopPropagation());
+    textEl.addEventListener('mousedown', (e) => {
+      if (textEl.getAttribute('contenteditable') === 'true') return;
+      e.stopPropagation();
+    });
     textEl.addEventListener('click', (e) => {
       if (textEl.getAttribute('contenteditable') === 'true') return;
       if (e.target.closest('a.unsorted-inline-link')) return;
@@ -2640,7 +2720,7 @@
           if (item.text !== txt) { item.text = txt; saveState(); }
           fillUnsortedTextWithLinks(textEl, item.text);
         },
-        { multiline: true }
+        { multiline: true, clientX: e.clientX, clientY: e.clientY, draggableHost: rowEl }
       );
     });
 
@@ -2714,16 +2794,19 @@
     renderUnsorted();
   });
 
+  unsortedInput.addEventListener('input', syncUnsortedInputHeight);
   unsortedInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      const text = unsortedInput.value.trim();
-      if (!text) return;
-      state.unsortedItems.push({ id: uid('u'), text, done: false });
-      unsortedInput.value = '';
-      saveState();
-      renderUnsorted();
-    }
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    e.preventDefault();
+    const text = unsortedInput.value.trim();
+    if (!text) return;
+    state.unsortedItems.push({ id: uid('u'), text, done: false });
+    unsortedInput.value = '';
+    syncUnsortedInputHeight();
+    saveState();
+    renderUnsorted();
   });
+  requestAnimationFrame(syncUnsortedInputHeight);
 
   // ============================================================
   // FILTER / SEARCH
