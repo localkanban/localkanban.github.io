@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="LKB">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="manifest" href="./manifest.webmanifest" />
 <title>Local Kanban</title>
 <style>
   :root {
@@ -3469,52 +3470,8 @@
   });
 
   // ============================================================
-  // PWA (manifest + minimal service worker — all from this document)
-  // ============================================================
-  function installProgressiveWebAppShell() {
-    const iconHref = new URL('icon.svg', location.href).href;
-    const baseHref = new URL('./', location.href).href;
-    const manifest = {
-      name: 'Local Kanban',
-      short_name: 'LKB',
-      description: 'Kanban with unsorted inbox — data stays in your browser.',
-      start_url: baseHref,
-      scope: baseHref,
-      display: 'standalone',
-      orientation: 'any',
-      background_color: '#1a1a1a',
-      theme_color: '#1a1a1a',
-      icons: [
-        {
-          src: iconHref,
-          sizes: '512x512',
-          type: 'image/svg+xml',
-          purpose: 'any maskable',
-        },
-      ],
-    };
-    const manifestUrl = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' }));
-    const mLink = document.createElement('link');
-    mLink.rel = 'manifest';
-    mLink.href = manifestUrl;
-    document.head.appendChild(mLink);
-
-    if (!('serviceWorker' in navigator)) return;
-    const swSrc =
-      "self.addEventListener('install', function (e) { self.skipWaiting(); });" +
-      "self.addEventListener('activate', function (e) { e.waitUntil(self.clients.claim()); });";
-    const swUrl = URL.createObjectURL(new Blob([swSrc], { type: 'application/javascript' }));
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register(swUrl, { scope: new URL('.', location.href).href }).catch((err) => {
-        console.warn('LKB: service worker not registered', err);
-      });
-    });
-  }
-
-  // ============================================================
   // INIT
   // ============================================================
-  installProgressiveWebAppShell();
   applyPanelState();
   // Restore search input from state
   searchInput.value = state.searchQuery || '';
@@ -3522,6 +3479,15 @@
   if (state.tagFilterMode !== 'any' && state.tagFilterMode !== 'all') state.tagFilterMode = 'all';
   updateTagModeToggleUI();
   renderAll();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js').catch((err) => {
+      console.warn('Service worker registration failed:', err);
+    });
+  });
+}
 </script>
 
 </body>
