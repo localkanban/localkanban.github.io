@@ -2445,6 +2445,11 @@
       if (textEl.getAttribute('contenteditable') === 'true') return;
       // Don't enter edit mode if a chip was clicked
       if (e.target.closest('.card-link, .card-tag')) return;
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        openCardDetailsModal(card);
+        return;
+      }
       startCardEdit(card, col, textEl, e.clientX, e.clientY);
     });
 
