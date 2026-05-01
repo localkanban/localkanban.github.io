@@ -1,0 +1,3528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a1a1a">
+<meta name="description" content="Local kanban board with unsorted inbox — saved in your browser.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LKB">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<title>Local Kanban</title>
+<style>
+  :root {
+    --bg: #1a1a1a;
+    --surface: #242424;
+    --surface-2: #2e2e2e;
+    --card-bg: #2a2a2a;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.22);
+    --text: #ececec;
+    --text-muted: #8a8a85;
+    --accent: #c96442;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); }
+
+  body {
+    font-family: var(--font);
+    color: var(--text);
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* ============ MAIN AREA ============ */
+  .main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 24px 24px 16px;
+    flex-shrink: 0;
+  }
+  .header h1 { font-size: 22px; font-weight: 500; margin: 0; }
+  .header .hint {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.4;
+    text-align: left;
+  }
+
+  /* The vertical stack of all rows */
+  .rows-wrap {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0 24px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* ============ ROW ============ */
+  .row {
+    background: rgba(255,255,255,0.015);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 12px 6px;
+    display: flex;
+    flex-direction: column;
+    transition: opacity 0.12s ease;
+    /* Never shrink below content in the main rows list; min 240px for empty rows */
+    min-height: max(240px, min-content);
+    flex-shrink: 0;
+  }
+  .row.dragging { opacity: 0.4; }
+
+  .row-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    cursor: grab;
+    user-select: none;
+    padding: 2px 4px;
+  }
+  .row-header:active { cursor: grabbing; }
+
+  .row-handle {
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0.5;
+    flex-shrink: 0;
+  }
+  .row-header:hover .row-handle { opacity: 0.9; }
+
+  .row-title-text {
+    flex: 1;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    outline: none;
+    border-radius: 4px;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    min-width: 0;
+    cursor: text;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .row-title-text[contenteditable="true"] {
+    background: var(--surface-2);
+    color: var(--text);
+    white-space: normal;
+    overflow: visible;
+  }
+
+  .row-actions { display: flex; gap: 2px; }
+
+  .board-wrap {
+    overflow-x: auto;
+    /* Do not clip vertically: hidden + flex min-size:auto made rows shrink and hid cards */
+    overflow-y: visible;
+    padding-bottom: 4px;
+    margin: 0 -4px;
+    padding-left: 4px;
+    padding-right: 4px;
+    flex-shrink: 0;
+    min-height: min-content;
+  }
+
+  .board {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    width: max-content;
+    min-width: 100%;
+  }
+  .board.panning { cursor: grabbing !important; }
+  .board.panning * { cursor: grabbing !important; pointer-events: none; }
+
+  .column {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    padding: 12px;
+    min-height: 180px;
+    width: 280px;
+    flex: 0 0 280px;
+    display: flex;
+    flex-direction: column;
+    transition: opacity 0.12s ease;
+  }
+  .column.dragging { opacity: 0.35; }
+
+  .column-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 4px 10px;
+    border-bottom: 0.5px solid var(--border);
+    margin-bottom: 10px;
+    cursor: grab;
+    user-select: none;
+  }
+  .column-header:active { cursor: grabbing; }
+
+  .column-title {
+    font-size: 14px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .column-title-text {
+    outline: none;
+    border-radius: 4px;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: text;
+  }
+  .column-title-text[contenteditable="true"] {
+    background: var(--surface-2);
+    white-space: normal;
+    overflow: visible;
+  }
+
+  .count {
+    font-size: 12px;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.06);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 400;
+  }
+
+  .col-actions { display: flex; gap: 2px; }
+
+  .icon-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    line-height: 1;
+    transition: background 0.12s, color 0.12s;
+  }
+  .icon-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+  }
+  .icon-btn.confirm-delete {
+    background: rgba(192, 57, 43, 0.18);
+    color: #f5a596;
+  }
+  .icon-btn.confirm-delete:hover {
+    background: rgba(192, 57, 43, 0.32);
+    color: #ffb8a8;
+  }
+
+  .cards {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 0 1 auto;
+    min-height: 30px;
+  }
+
+  .card {
+    background: var(--card-bg);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 9px 11px;
+    font-size: 13.5px;
+    line-height: 1.45;
+    cursor: pointer;
+    position: relative;
+    transition: border-color 0.12s ease, opacity 0.12s ease;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+  }
+  .card:hover { border-color: var(--border-strong); }
+  .card.dragging { opacity: 0.4; }
+  .card-text { outline: none; }
+  .card-text[contenteditable="true"] { cursor: text; }
+
+  .card-add-slot {
+    flex-shrink: 0;
+    appearance: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    padding: 8px 11px;
+    margin: 0;
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.22);
+    color: var(--text-muted);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    font-family: inherit;
+    width: 100%;
+    box-sizing: border-box;
+    transition: border-color 0.12s, color 0.12s, background 0.12s;
+  }
+  .card-add-slot:hover {
+    border-color: rgba(255, 255, 255, 0.28);
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .card .delete {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s, background 0.12s, color 0.12s;
+  }
+  .card:hover .delete {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .card .delete:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text);
+  }
+  .card .delete.confirm {
+    background: rgba(192, 57, 43, 0.25);
+    color: #ffb8a8;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .add-column {
+    width: 280px;
+    flex: 0 0 280px;
+    background: transparent;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-lg);
+    padding: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: border-color 0.12s, color 0.12s;
+  }
+  .add-column:hover {
+    border-color: var(--text-muted);
+    color: var(--text);
+  }
+  .add-column.drop-target {
+    border-color: var(--accent);
+    color: var(--text);
+    background: rgba(201, 100, 66, 0.1);
+  }
+
+  .add-row {
+    background: transparent;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-lg);
+    padding: 14px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: border-color 0.12s, color 0.12s;
+    flex-shrink: 0;
+  }
+  .add-row:hover {
+    border-color: var(--text-muted);
+    color: var(--text);
+  }
+
+  /* ============ SIDE PANEL ============ */
+  .side-panel {
+    width: 400px;
+    flex: 0 0 400px;
+    background: var(--surface);
+    border-left: 0.5px solid var(--border);
+    height: 100vh;
+    padding: 24px 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+  .side-panel.collapsed {
+    width: 36px;
+    flex: 0 0 36px;
+    cursor: ew-resize;
+  }
+  .side-panel.collapsed .panel-resize {
+    width: 100%;
+  }
+  .side-panel.collapsed .panel-resize::before {
+    left: 50%;
+    top: 50%;
+    width: 2px;
+    height: 32px;
+    transform: translate(-50%, -50%);
+    background: var(--border-strong);
+    border-radius: 2px;
+    opacity: 0.5;
+    transition: opacity 0.12s, background 0.12s;
+  }
+  .side-panel.collapsed:hover .panel-resize::before,
+  .side-panel.collapsed .panel-resize.active::before {
+    background: var(--accent);
+    opacity: 1;
+  }
+  .side-panel.collapsed .side-header,
+  .side-panel.collapsed .unsorted-input-wrap,
+  .side-panel.collapsed .unsorted-list {
+    display: none;
+  }
+
+  .panel-resize {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 6px;
+    height: 100%;
+    cursor: ew-resize;
+    z-index: 2;
+    background: transparent;
+  }
+  .panel-resize::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 2px;
+    width: 1px;
+    height: 100%;
+    background: transparent;
+    transition: background 0.12s;
+  }
+  .panel-resize:hover::before,
+  .panel-resize.active::before {
+    background: var(--accent);
+  }
+  body.resizing-panel { cursor: ew-resize; user-select: none; }
+  body.resizing-panel * { user-select: none !important; }
+
+  .side-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-shrink: 0;
+    padding: 0 8px;
+  }
+  .side-header h2 {
+    font-size: 16px;
+    font-weight: 500;
+    margin: 0;
+  }
+
+  .unsorted-input-wrap {
+    margin-bottom: 12px;
+    flex-shrink: 0;
+    padding: 0 8px;
+  }
+  .unsorted-input {
+    width: 100%;
+    background: var(--card-bg);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 8px 11px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13.5px;
+    outline: none;
+    transition: border-color 0.12s;
+  }
+  .unsorted-input:focus { border-color: var(--border-strong); }
+  .unsorted-input::placeholder { color: var(--text-muted); }
+
+  .unsorted-list {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 4px;
+  }
+
+  .unsorted-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 6px;
+    border-radius: var(--radius-md);
+    transition: background 0.12s, opacity 0.12s;
+    position: relative;
+  }
+  .unsorted-item:hover { background: rgba(255, 255, 255, 0.03); }
+  .unsorted-item.dragging { opacity: 0.4; }
+
+  .unsorted-handle {
+    color: var(--text-muted);
+    cursor: grab;
+    width: 12px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin: 0 -2px 0 -4px;
+    user-select: none;
+    font-size: 12px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  .unsorted-handle:active { cursor: grabbing; }
+  .unsorted-item:hover .unsorted-handle { opacity: 0.7; }
+
+  .unsorted-checkbox {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid var(--text-muted);
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+    margin: 2px 0 0;
+    flex-shrink: 0;
+    position: relative;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .unsorted-checkbox:hover { border-color: var(--text); }
+  .unsorted-checkbox:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .unsorted-checkbox:checked::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+
+  .unsorted-text {
+    flex: 1;
+    font-size: 13.5px;
+    line-height: 1.45;
+    outline: none;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    cursor: pointer;
+    padding: 1px 2px;
+    margin: -1px -2px;
+    border-radius: 3px;
+    min-width: 0;
+  }
+  .unsorted-text[contenteditable="true"] { cursor: text; background: var(--surface-2); }
+  .unsorted-item.done .unsorted-text {
+    text-decoration: line-through;
+    color: var(--text-muted);
+  }
+  .unsorted-item.done .unsorted-text a {
+    text-decoration: line-through underline;
+    color: #ffffff;
+    opacity: 0.88;
+  }
+  .unsorted-inline-link {
+    color: #ffffff;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+    word-break: break-all;
+  }
+  .unsorted-inline-link:hover {
+    color: #ffffff;
+    text-decoration-thickness: 2px;
+  }
+
+  .unsorted-delete {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    flex-shrink: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s, background 0.12s, color 0.12s;
+  }
+  .unsorted-item:hover .unsorted-delete {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .unsorted-delete:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+  }
+  .unsorted-delete.confirm {
+    background: rgba(192, 57, 43, 0.25);
+    color: #ffb8a8;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .empty-state {
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 16px 8px;
+  }
+
+  ::-webkit-scrollbar { height: 10px; width: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
+  /* ============ SEARCH BAR ============ */
+  .search-wrap {
+    position: relative;
+    flex: 0 1 360px;
+    min-width: 140px;
+    max-width: 360px;
+    margin-left: 16px;
+  }
+  .search-input {
+    width: 100%;
+    background: var(--card-bg);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 7px 28px 7px 30px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.12s;
+  }
+  .search-input:focus { border-color: var(--border-strong); }
+  .search-input::placeholder { color: var(--text-muted); }
+  .search-icon {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    pointer-events: none;
+    font-size: 13px;
+  }
+  .search-clear {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0;
+  }
+  .search-clear:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+  .search-wrap.has-value .search-clear { display: flex; }
+
+  /* AND/OR toggle for tag filter mode */
+  .tag-mode-toggle {
+    display: flex;
+    flex-shrink: 0;
+    background: var(--card-bg);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 2px;
+    gap: 0;
+    height: 28px;
+    align-items: stretch;
+  }
+  .tag-mode-toggle button {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0 9px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    min-width: 38px;
+  }
+  .tag-mode-toggle button:hover { color: var(--text); }
+  .tag-mode-toggle button.active {
+    background: var(--accent);
+    color: white;
+  }
+  .tag-mode-toggle.dim { opacity: 0.5; }
+  .tag-mode-label {
+    font-size: 10.5px;
+    color: var(--text-muted);
+    align-self: center;
+    margin-right: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+
+  /* ============ CARD CHIPS (links + tags) ============ */
+  .card.hidden { display: none; }
+
+  /* Drop preview (commit on release only) */
+  .drop-indicator--card {
+    height: 3px;
+    margin: 3px 0;
+    border-radius: 2px;
+    background: var(--accent);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.2);
+    pointer-events: none;
+    flex-shrink: 0;
+  }
+  .drop-indicator--column {
+    width: 4px;
+    align-self: stretch;
+    min-height: 48px;
+    margin: 0 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    pointer-events: none;
+    flex-shrink: 0;
+  }
+  .drop-indicator--row {
+    height: 3px;
+    margin: 6px 0;
+    border-radius: 2px;
+    background: var(--accent);
+    pointer-events: none;
+    flex-shrink: 0;
+  }
+  .drop-indicator--unsorted {
+    height: 3px;
+    margin: 2px 0;
+    border-radius: 2px;
+    background: var(--accent);
+    pointer-events: none;
+  }
+
+  .card-meta {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    align-items: center;
+  }
+  .card-link {
+    font-size: 11.5px;
+    color: #ffffff;
+    background: rgba(255,255,255,0.08);
+    padding: 2px 7px;
+    border-radius: 10px;
+    cursor: pointer;
+    text-decoration: none;
+    line-height: 1.4;
+    border: 0.5px solid rgba(255,255,255,0.2);
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .card-link::before {
+    content: '↗';
+    font-size: 10px;
+    opacity: 0.85;
+    flex-shrink: 0;
+  }
+  .card-link:hover {
+    background: rgba(255,255,255,0.16);
+    color: #ffffff;
+    border-color: rgba(255,255,255,0.35);
+  }
+  .card-tag {
+    font-size: 11.5px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    cursor: pointer;
+    line-height: 1.4;
+    transition: filter 0.12s, box-shadow 0.12s;
+    border: 0.5px solid transparent;
+    color: #ffffff;
+  }
+  .card-tag:hover {
+    filter: brightness(1.14);
+  }
+  .card-tag.active {
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
+    filter: brightness(1.18);
+  }
+  .card-has-details {
+    position: absolute;
+    bottom: 4px;
+    right: 7px;
+    color: var(--text-muted);
+    font-size: 10px;
+    opacity: 0.55;
+    pointer-events: none;
+  }
+
+  /* ============ CONTEXT MENU ============ */
+  .ctx-menu {
+    position: fixed;
+    background: var(--surface);
+    border: 0.5px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    padding: 4px;
+    min-width: 180px;
+    z-index: 1000;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ctx-item {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    padding: 7px 10px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ctx-item:hover { background: rgba(255,255,255,0.06); }
+  .ctx-item.danger { color: #f5a596; }
+  .ctx-item.danger:hover { background: rgba(192, 57, 43, 0.18); }
+  .ctx-divider { height: 0.5px; background: var(--border); margin: 4px 2px; }
+
+  /* ============ MODAL ============ */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+    padding: 24px;
+  }
+  .modal {
+    background: var(--surface);
+    border: 0.5px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 560px;
+    max-height: calc(100vh - 48px);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+  .modal-header {
+    padding: 16px 20px;
+    border-bottom: 0.5px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .modal-header h3 { margin: 0; font-size: 15px; font-weight: 500; }
+  .modal-body {
+    padding: 16px 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .modal-footer {
+    padding: 12px 20px;
+    border-top: 0.5px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .modal-field { display: flex; flex-direction: column; gap: 6px; }
+  .modal-field label {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .modal-input, .modal-textarea {
+    background: var(--card-bg);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 8px 11px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13.5px;
+    outline: none;
+    transition: border-color 0.12s;
+    width: 100%;
+  }
+  .modal-textarea {
+    min-height: 90px;
+    resize: vertical;
+    line-height: 1.5;
+  }
+  .modal-input:focus, .modal-textarea:focus { border-color: var(--border-strong); }
+  .modal-input::placeholder, .modal-textarea::placeholder { color: var(--text-muted); }
+
+  .link-rows { display: flex; flex-direction: column; gap: 6px; }
+  .link-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .link-row .modal-input { flex: 1; min-width: 0; }
+  .link-row .modal-input.link-name { flex: 0 0 130px; }
+
+  .add-row-btn {
+    align-self: flex-start;
+    background: transparent;
+    border: 0.5px dashed var(--border-strong);
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .add-row-btn:hover { color: var(--text); border-color: var(--text-muted); }
+
+  .tag-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    align-items: center;
+    padding: 6px;
+    background: var(--card-bg);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-md);
+    min-height: 36px;
+  }
+  .tag-chip {
+    padding: 2px 6px 2px 9px;
+    border-radius: 10px;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 0.5px solid transparent;
+    color: #ffffff;
+  }
+  .tag-chip-x {
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    width: 14px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    padding: 0;
+    line-height: 1;
+    opacity: 0.6;
+  }
+  .tag-chip-x:hover { opacity: 1; }
+  .tag-input {
+    flex: 1;
+    min-width: 80px;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+    padding: 2px 4px;
+  }
+  .tag-input::placeholder { color: var(--text-muted); }
+
+  .btn {
+    background: transparent;
+    border: 0.5px solid var(--border-strong);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .btn:hover { background: rgba(255,255,255,0.06); }
+  .btn.btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+  .btn.btn-primary:hover { background: #d97350; border-color: #d97350; }
+  .btn.btn-danger {
+    background: rgba(192, 57, 43, 0.2);
+    border-color: rgba(192, 57, 43, 0.45);
+    color: #f5a596;
+  }
+  .btn.btn-danger:hover { background: rgba(192, 57, 43, 0.32); border-color: rgba(192, 57, 43, 0.6); color: #ffb8a8; }
+  .btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .btn-icon:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+
+  .header-io {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .btn.btn-header-io {
+    padding: 5px 12px;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<div class="main">
+  <div class="header">
+    <h1 style="flex-shrink:0;">LKB</h1>
+    <div class="search-wrap" id="searchWrap">
+      <span class="search-icon">⌕</span>
+      <input type="text" class="search-input" id="searchInput" placeholder="Filter cards · type text or #tag" autocomplete="off" spellcheck="false" />
+      <button class="search-clear" id="searchClear" title="Clear filter">×</button>
+    </div>
+    <div class="tag-filter-controls" id="tagFilterControls" style="display:flex;align-items:center;gap:6px;flex-shrink:0;" title="With two or more #tags in the filter: Any = card has at least one tag; All = card has every tag.">
+      <span class="tag-mode-label">Tags</span>
+      <div class="tag-mode-toggle" id="tagModeToggle" role="group" aria-label="Tag filter match mode">
+        <button type="button" data-mode="any">Any</button>
+        <button type="button" data-mode="all">All</button>
+      </div>
+    </div>
+    <div class="header-io" title="Backup and restore board data">
+      <button type="button" class="btn btn-header-io" id="btnExport">Export</button>
+      <button type="button" class="btn btn-header-io" id="btnImport">Import…</button>
+      <input type="file" id="importFileInput" accept="application/json,.json" hidden />
+      <button type="button" class="btn btn-header-io" id="btnReset">Reset…</button>
+    </div>
+    <div class="hint">Right-click a card for details · drag unsorted items into a column (or Add column) · shift + middle-click to pan all rows</div>
+  </div>
+  <div class="rows-wrap" id="rowsWrap"></div>
+</div>
+
+<aside class="side-panel" id="sidePanel">
+  <div class="panel-resize" id="panelResize" title="Drag to resize · click to open or close"></div>
+  <div class="side-header"><h2>Unsorted Items</h2></div>
+  <div class="unsorted-input-wrap">
+    <input type="text" class="unsorted-input" id="unsortedInput" placeholder="Add an unsorted item · Enter" />
+  </div>
+  <div class="unsorted-list" id="unsortedList"></div>
+</aside>
+
+<!-- Context menu and modal mount points (populated dynamically) -->
+<div id="ctxMount"></div>
+<div id="modalMount"></div>
+
+<script>
+  // ============================================================
+  // STATE + localStorage
+  // ============================================================
+  const STORAGE_KEY = 'kanbanState';
+
+  function deepClone(o) {
+    try {
+      return structuredClone(o);
+    } catch (_) {
+      return JSON.parse(JSON.stringify(o));
+    }
+  }
+
+  function createDefaultState() {
+    return {
+      version: 7,
+      panelCollapsed: true,
+      panelWidth: 400,
+      searchQuery: '',
+      tagFilterMode: 'all', // 'all' = require every #tag, 'any' = at least one #tag matches
+      rows: [
+        { id: 'r1', title: 'Project A', columns: [
+          { id: 'col1', title: 'To do', cards: [
+            { id: 'c1', text: 'Right-click me for the context menu', description: '', links: [], tags: ['demo', 'try-me'] },
+            { id: 'c2', text: 'Drag rows by their header to reorder', description: 'Each row works independently. Try the row handle (⋮⋮) at the top.', links: [{ name: 'Anthropic', url: 'https://www.anthropic.com' }], tags: ['ux'] }
+          ]},
+          { id: 'col2', title: 'In progress', cards: [
+            { id: 'c3', text: 'Middle-click + drag to pan a row', description: '', links: [], tags: ['ux'] }
+          ]},
+          { id: 'col3', title: 'Done', cards: [
+            { id: 'c4', text: 'Click × twice to delete (within 2s)', description: '', links: [], tags: [] }
+          ]}
+        ]},
+        { id: 'r2', title: 'Project B', columns: [
+          { id: 'col4', title: 'Ideas', cards: [
+            { id: 'c5', text: 'Filter cards by typing in the search box. Use #tag for tags.', description: '', links: [], tags: ['demo'] }
+          ]},
+          { id: 'col5', title: 'Done', cards: [] }
+        ]}
+      ],
+      unsortedItems: [
+        { id: 'u1', text: 'Drag handles to reorder (live preview)', done: false },
+        { id: 'u2', text: 'Drag me into a column to create a card', done: false }
+      ]
+    };
+  }
+
+  function isValidBoardRows(rows) {
+    if (!Array.isArray(rows)) return false;
+    for (const r of rows) {
+      if (!r || typeof r !== 'object') return false;
+      if (typeof r.id !== 'string' || typeof r.title !== 'string') return false;
+      if (!Array.isArray(r.columns)) return false;
+      for (const col of r.columns) {
+        if (!col || typeof col !== 'object') return false;
+        if (typeof col.id !== 'string' || typeof col.title !== 'string') return false;
+        if (!Array.isArray(col.cards)) return false;
+      }
+    }
+    return true;
+  }
+
+  function normalizeUnsortedItems(arr) {
+    return arr.map((u, i) => ({
+      id: typeof u?.id === 'string' && u.id ? u.id : `u-fallback-${i}`,
+      text: typeof u?.text === 'string' ? u.text : String(u?.text ?? ''),
+      done: !!u?.done,
+    }));
+  }
+
+  function hydrateState(parsed) {
+    const def = createDefaultState();
+    if (!parsed || typeof parsed !== 'object') return def;
+
+    let unsorted = parsed.unsortedItems;
+    if (!Array.isArray(unsorted) && Array.isArray(parsed.todos)) unsorted = parsed.todos;
+    if (!Array.isArray(unsorted)) unsorted = def.unsortedItems;
+
+    const rows = isValidBoardRows(parsed.rows) ? deepClone(parsed.rows) : deepClone(def.rows);
+
+    const pw = parsed.panelWidth;
+    const panelWidth = typeof pw === 'number' && pw >= 400 && pw <= 600 ? Math.round(pw) : def.panelWidth;
+
+    return {
+      version: typeof parsed.version === 'number' ? parsed.version : def.version,
+      panelCollapsed: typeof parsed.panelCollapsed === 'boolean' ? parsed.panelCollapsed : def.panelCollapsed,
+      panelWidth,
+      searchQuery: typeof parsed.searchQuery === 'string' ? parsed.searchQuery : '',
+      tagFilterMode: parsed.tagFilterMode === 'any' ? 'any' : 'all',
+      rows,
+      unsortedItems: normalizeUnsortedItems(unsorted),
+    };
+  }
+
+  function tryLoadFromStorage() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (e) {
+      console.warn('LKB: could not read saved state', e);
+      return null;
+    }
+  }
+
+  const state = hydrateState(tryLoadFromStorage());
+
+  const PERSIST_KEYS = ['version', 'panelCollapsed', 'panelWidth', 'searchQuery', 'tagFilterMode', 'rows', 'unsortedItems'];
+
+  function saveState() {
+    try {
+      const payload = {};
+      for (const k of PERSIST_KEYS) payload[k] = state[k];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch (e) {
+      console.warn('LKB: could not save state', e);
+    }
+  }
+
+  let _seq = 100;
+  function uid(prefix) { return prefix + (++_seq); }
+
+  function syncSeqFromState() {
+    let max = _seq;
+    const bump = (id) => {
+      const m = String(id).match(/(\d+)$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    };
+    for (const r of state.rows) {
+      bump(r.id);
+      for (const col of r.columns || []) {
+        bump(col.id);
+        for (const c of col.cards || []) bump(c.id);
+      }
+    }
+    for (const u of state.unsortedItems) bump(u.id);
+    _seq = max;
+  }
+  syncSeqFromState();
+
+  function buildExportPayload() {
+    return {
+      version: state.version,
+      rows: JSON.parse(JSON.stringify(state.rows)),
+      unsortedItems: JSON.parse(JSON.stringify(state.unsortedItems)),
+    };
+  }
+
+  function exportBoardToFile() {
+    const blob = new Blob([JSON.stringify(buildExportPayload(), null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    a.href = URL.createObjectURL(blob);
+    a.download = `lkb-export-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    }, 0);
+  }
+
+  function normalizeImportedCard(raw) {
+    const text = typeof raw.text === 'string' ? raw.text : (raw.text != null ? String(raw.text) : '');
+    const description = typeof raw.description === 'string' ? raw.description : '';
+    const links = Array.isArray(raw.links)
+      ? raw.links
+          .map((l) => ({
+            name: String(l && l.name != null ? l.name : '').trim(),
+            url: String(l && l.url != null ? l.url : '').trim(),
+          }))
+          .filter((l) => l.url !== '')
+          .map((l) => ({ name: l.name || l.url, url: l.url }))
+      : [];
+    const tags = Array.isArray(raw.tags) ? raw.tags.map((t) => String(t)).filter(Boolean) : [];
+    return { id: uid('c'), text, description, links, tags };
+  }
+
+  function normalizeImportedColumn(raw) {
+    const title = typeof raw.title === 'string' ? raw.title : String(raw.title || 'Column');
+    const cards = Array.isArray(raw.cards) ? raw.cards.map(normalizeImportedCard) : [];
+    return { id: uid('col'), title, cards };
+  }
+
+  function normalizeImportedRow(raw) {
+    const title = typeof raw.title === 'string' ? raw.title : String(raw.title || 'Imported row');
+    const columns = Array.isArray(raw.columns) ? raw.columns.map(normalizeImportedColumn) : [];
+    return { id: uid('r'), title, columns };
+  }
+
+  function normalizeImportedUnsorted(raw) {
+    return {
+      id: uid('u'),
+      text: typeof raw.text === 'string' ? raw.text : String(raw.text || ''),
+      done: !!raw.done,
+    };
+  }
+
+  function appendFromImportPayload(obj) {
+    if (!obj || typeof obj !== 'object') throw new Error('Invalid file: expected a JSON object.');
+    if (!Array.isArray(obj.rows)) throw new Error('Invalid file: missing a "rows" array.');
+    let unsorted = obj.unsortedItems;
+    if (!Array.isArray(unsorted) && Array.isArray(obj.todos)) unsorted = obj.todos;
+    if (!Array.isArray(unsorted)) unsorted = [];
+    for (const row of obj.rows) {
+      state.rows.push(normalizeImportedRow(row));
+    }
+    for (const u of unsorted) {
+      state.unsortedItems.push(normalizeImportedUnsorted(u));
+    }
+    syncSeqFromState();
+  }
+
+  // ============================================================
+  // UTIL
+  // ============================================================
+  function selectAllText(el) {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  // Add a protocol if missing. mailto: and other custom schemes pass through.
+  function normalizeUrl(url) {
+    if (!url) return '';
+    const trimmed = url.trim();
+    if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed; // already has a scheme
+    return 'https://' + trimmed;
+  }
+
+  /** FNV-1a 32-bit — deterministic palette index from tag text (case-insensitive). */
+  function hashTagString(s) {
+    const key = String(s || '').toLowerCase();
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < key.length; i++) {
+      h ^= key.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h;
+  }
+
+  const TAG_COLOR_SWATCHES = [
+    '#dc2626', '#ea580c', '#ca8a04', '#a3e635', '#22c55e', '#10b981',
+    '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6',
+    '#a855f7', '#d946ef', '#ec4899', '#f43f5e',
+  ];
+
+  function tagBackgroundForString(tag) {
+    const h = hashTagString(tag);
+    return TAG_COLOR_SWATCHES[h % TAG_COLOR_SWATCHES.length];
+  }
+
+  function applyTagColorsToElement(el, tag) {
+    el.style.backgroundColor = tagBackgroundForString(tag);
+    el.style.color = '#ffffff';
+  }
+
+  function trimTrailingUrlPunct(s) {
+    return s.replace(/[.,;:!?]+$/g, '');
+  }
+
+  /** Split plain text into alternating text / URL segments for inline linkification. */
+  function parseTextWithUrls(text) {
+    if (!text) return [];
+    const re = /\b(?:https?:\/\/[^\s<]+|ftp:\/\/[^\s<]+|mailto:[^\s<]+|www\.[^\s<]+)/gi;
+    const parts = [];
+    let last = 0;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) parts.push({ type: 'text', value: text.slice(last, m.index) });
+      const raw = trimTrailingUrlPunct(m[0]);
+      if (raw.length) parts.push({ type: 'url', value: raw });
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) parts.push({ type: 'text', value: text.slice(last) });
+    return parts;
+  }
+
+  function fillUnsortedTextWithLinks(el, text) {
+    el.innerHTML = '';
+    if (text == null || text === '') return;
+    for (const p of parseTextWithUrls(text)) {
+      if (p.type === 'text') {
+        el.appendChild(document.createTextNode(p.value));
+      } else {
+        const a = document.createElement('a');
+        a.className = 'unsorted-inline-link';
+        a.href = normalizeUrl(p.value);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.draggable = false;
+        a.textContent = p.value;
+        a.title = a.href;
+        a.addEventListener('mousedown', (e) => e.stopPropagation());
+        a.addEventListener('click', (e) => e.stopPropagation());
+        el.appendChild(a);
+      }
+    }
+  }
+
+  function makeConfirmDelete(buttonEl, onConfirm, armedClass = 'confirm') {
+    let armed = false;
+    let timer = null;
+    const idleTitle = buttonEl.title || 'Delete';
+    buttonEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (armed) {
+        clearTimeout(timer);
+        onConfirm();
+        return;
+      }
+      armed = true;
+      buttonEl.classList.add(armedClass);
+      buttonEl.title = 'Click again to delete';
+      timer = setTimeout(() => {
+        armed = false;
+        buttonEl.classList.remove(armedClass);
+        buttonEl.title = idleTitle;
+      }, 2000);
+    });
+  }
+
+  // Generic editable text. Single-line for titles; multi-line for cards.
+  function makeEditable(el, getCurrent, onCommit, opts = {}) {
+    const { multiline = false, onEnter = null } = opts;
+    el.setAttribute('contenteditable', 'true');
+    el.focus();
+    selectAllText(el);
+
+    let enterPressed = false;
+
+    const finish = () => {
+      el.removeAttribute('contenteditable');
+      const raw = multiline ? el.innerText : el.textContent;
+      const newText = raw.replace(/\r\n/g, '\n').trim();
+      onCommit(newText);
+      el.removeEventListener('blur', finish);
+      el.removeEventListener('keydown', onKey);
+      if (enterPressed && onEnter) onEnter();
+    };
+    const onKey = (e) => {
+      if (e.key === 'Enter' && (multiline ? !e.shiftKey : true)) {
+        e.preventDefault();
+        enterPressed = true;
+        el.blur();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        enterPressed = false;
+        el.textContent = getCurrent();
+        el.blur();
+      }
+    };
+    el.addEventListener('blur', finish);
+    el.addEventListener('keydown', onKey);
+  }
+
+  // ============================================================
+  // STATE HELPERS
+  // ============================================================
+  function findCard(cardId) {
+    for (const row of state.rows) {
+      for (const col of row.columns) {
+        const idx = col.cards.findIndex(c => c.id === cardId);
+        if (idx !== -1) return { row, col, idx };
+      }
+    }
+    return null;
+  }
+  function findColumn(colId) {
+    for (const row of state.rows) {
+      const idx = row.columns.findIndex(c => c.id === colId);
+      if (idx !== -1) return { row, idx };
+    }
+    return null;
+  }
+  function findRow(rowId) {
+    const idx = state.rows.findIndex(r => r.id === rowId);
+    return idx === -1 ? null : { idx };
+  }
+
+  function computeCardInsertIndexFromEvent(cardsEl, col, clientY) {
+    const cards = [...cardsEl.querySelectorAll('.card')].filter((c) => !c.classList.contains('hidden'));
+    let insertAt = col.cards.length;
+    for (let i = 0; i < cards.length; i++) {
+      const rect = cards[i].getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) {
+        const cid = cards[i].dataset.cardId;
+        const idx = col.cards.findIndex((c) => c.id === cid);
+        insertAt = idx === -1 ? col.cards.length : idx;
+        break;
+      }
+    }
+    return insertAt;
+  }
+
+  function promoteUnsortedToColumn(unsortedId, col, insertAt) {
+    const idx = state.unsortedItems.findIndex((t) => t.id === unsortedId);
+    if (idx === -1) return false;
+    const [item] = state.unsortedItems.splice(idx, 1);
+    const newCard = {
+      id: uid('c'),
+      text: item.text,
+      description: '',
+      links: [],
+      tags: []
+    };
+    const at = Math.max(0, Math.min(insertAt, col.cards.length));
+    col.cards.splice(at, 0, newCard);
+    return true;
+  }
+
+  // ============================================================
+  // DRAG STATE
+  // ============================================================
+  let dragCard = null;     // { cardId }
+  let dragColId = null;
+  let dragRowId = null;
+  let dragUnsortedId = null;
+
+  // Ephemeral drag preview (no state mutation until drop / dragend clears).
+  let dragCardPreview = null;       // { colId, insertAt }
+  let dragColPreview = null;        // { rowId, insertAt } index in row.columns
+  let dragRowPreview = null;        // { beforeRowId: string | null } null = after last row
+  let unsortedReorderPreview = null; // { beforeId: string | null } null = append end
+  let dragUnsortedBoardPreview = null; // { colId, insertAt } — unsorted → column landing preview
+
+  // Throttle dragover preview updates: only act when target/edge changes.
+  let lastReorderKey = null;
+
+  // ============================================================
+  // RENDER
+  // ============================================================
+  const rowsWrap = document.getElementById('rowsWrap');
+
+  function clearDragPreviews() {
+    dragCardPreview = null;
+    dragColPreview = null;
+    dragRowPreview = null;
+    unsortedReorderPreview = null;
+    dragUnsortedBoardPreview = null;
+    lastReorderKey = null;
+  }
+
+  function shouldShowCardDropIndicator(col, insertAt) {
+    return (dragCardPreview && dragCardPreview.colId === col.id && dragCardPreview.insertAt === insertAt) ||
+      (dragUnsortedBoardPreview && dragUnsortedBoardPreview.colId === col.id && dragUnsortedBoardPreview.insertAt === insertAt);
+  }
+
+  function elDropIndicator(kind) {
+    const d = document.createElement('div');
+    d.className = 'drop-indicator--' + kind;
+    d.setAttribute('aria-hidden', 'true');
+    return d;
+  }
+
+  /** Hit-test for clearing drop previews: inner .cards uses stopPropagation, so dragover never bubbles to parents. */
+  function pointOverCardDropZones(clientX, clientY) {
+    const stack = document.elementsFromPoint(clientX, clientY);
+    for (let i = 0; i < stack.length; i++) {
+      const el = stack[i];
+      if (!el || !el.closest) continue;
+      if (el.classList && el.classList.contains('dragging')) continue;
+      if (el.closest('.column .cards')) return true;
+    }
+    return false;
+  }
+
+  function pointOverUnsortedColumnDropZones(clientX, clientY) {
+    const stack = document.elementsFromPoint(clientX, clientY);
+    for (let i = 0; i < stack.length; i++) {
+      const el = stack[i];
+      if (!el || !el.closest) continue;
+      if (el.classList && el.classList.contains('dragging')) continue;
+      if (el.closest('.column, .add-column')) return true;
+    }
+    return false;
+  }
+
+  function pointOverAnyBoard(clientX, clientY) {
+    const stack = document.elementsFromPoint(clientX, clientY);
+    for (let i = 0; i < stack.length; i++) {
+      const el = stack[i];
+      if (!el || !el.closest) continue;
+      if (el.closest('.board')) return true;
+    }
+    return false;
+  }
+
+  function pointOverRowsWrap(clientX, clientY) {
+    const stack = document.elementsFromPoint(clientX, clientY);
+    for (let i = 0; i < stack.length; i++) {
+      const el = stack[i];
+      if (!el || !el.closest) continue;
+      if (el.closest('#rowsWrap')) return true;
+    }
+    return false;
+  }
+
+  document.addEventListener(
+    'dragover',
+    (e) => {
+      if (dragCard) {
+        if (!pointOverCardDropZones(e.clientX, e.clientY) && dragCardPreview) {
+          clearDragPreviews();
+          renderRows();
+        }
+        return;
+      }
+      if (dragUnsortedId && !dragColId) {
+        if (!pointOverUnsortedColumnDropZones(e.clientX, e.clientY) && dragUnsortedBoardPreview) {
+          clearDragPreviews();
+          renderRows();
+        }
+        return;
+      }
+      if (dragColId && dragColPreview) {
+        if (!pointOverAnyBoard(e.clientX, e.clientY)) {
+          clearDragPreviews();
+          renderRows();
+        }
+        return;
+      }
+      if (dragRowId && dragRowPreview) {
+        if (!pointOverRowsWrap(e.clientX, e.clientY)) {
+          clearDragPreviews();
+          renderRows();
+        }
+      }
+    },
+    true
+  );
+
+  function computeCardDropInsertAt(cardsEl, col, clientY, draggedCardId) {
+    const cards = [...cardsEl.querySelectorAll('.card')].filter(
+      (c) => !c.classList.contains('hidden') && c.dataset.cardId !== draggedCardId && !c.classList.contains('dragging')
+    );
+    let insertAt = col.cards.length;
+    for (let i = 0; i < cards.length; i++) {
+      const rect = cards[i].getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) {
+        const cid = cards[i].dataset.cardId;
+        const idx = col.cards.findIndex((c) => c.id === cid);
+        insertAt = idx === -1 ? col.cards.length : idx;
+        break;
+      }
+    }
+    return insertAt;
+  }
+
+  function updateCardDragPreview(cardsEl, col, e) {
+    if (!dragCard) return;
+    const insertAt = computeCardDropInsertAt(cardsEl, col, e.clientY, dragCard.cardId);
+    const key = `cardp:${col.id}:${insertAt}`;
+    if (key === lastReorderKey) return;
+    lastReorderKey = key;
+    dragCardPreview = { colId: col.id, insertAt };
+    renderRows();
+  }
+
+  function updateUnsortedBoardPreview(cardsEl, col, e) {
+    if (!dragUnsortedId) return;
+    if (unsortedReorderPreview) {
+      unsortedReorderPreview = null;
+      lastReorderKey = null;
+      renderUnsorted();
+    }
+    const insertAt = computeCardInsertIndexFromEvent(cardsEl, col, e.clientY);
+    const key = `usbp:${col.id}:${insertAt}`;
+    if (key === lastReorderKey) return;
+    lastReorderKey = key;
+    dragUnsortedBoardPreview = { colId: col.id, insertAt };
+    renderRows();
+  }
+
+  function finalizeCardDrop(cardId, targetCol, clientY, cardsEl) {
+    const insertAt = computeCardDropInsertAt(cardsEl, targetCol, clientY, cardId);
+    const f = findCard(cardId);
+    if (!f) return;
+    const [moved] = f.col.cards.splice(f.idx, 1);
+    let idx = insertAt;
+    if (f.col.id === targetCol.id && f.idx < insertAt) idx -= 1;
+    idx = Math.max(0, Math.min(idx, targetCol.cards.length));
+    targetCol.cards.splice(idx, 0, moved);
+  }
+
+  function getColumnDragGeometry(boardEl, row, clientX, draggedColId) {
+    const cols = [...boardEl.querySelectorAll('.column')].filter((c) => c.dataset.colId !== draggedColId);
+    let targetIdx = -1;
+    let beforeTarget = false;
+    for (let i = 0; i < cols.length; i++) {
+      const rect = cols[i].getBoundingClientRect();
+      if (clientX >= rect.left && clientX <= rect.right) {
+        targetIdx = i;
+        beforeTarget = clientX < rect.left + rect.width / 2;
+        break;
+      }
+    }
+    if (targetIdx === -1) {
+      const lastCol = cols[cols.length - 1];
+      if (lastCol) {
+        const rect = lastCol.getBoundingClientRect();
+        if (clientX > rect.right) {
+          targetIdx = cols.length - 1;
+          beforeTarget = false;
+        } else {
+          return null;
+        }
+      } else {
+        return { targetIdx: -1, beforeTarget: false, cols };
+      }
+    }
+    return { targetIdx, beforeTarget, cols };
+  }
+
+  function columnInsertIndexFromGeometry(row, geom) {
+    if (!geom) return null;
+    if (geom.targetIdx === -1) return row.columns.length;
+    const targetColId = geom.cols[geom.targetIdx].dataset.colId;
+    let toIdx = row.columns.findIndex((c) => c.id === targetColId);
+    if (toIdx === -1) toIdx = row.columns.length;
+    if (!geom.beforeTarget) toIdx += 1;
+    return toIdx;
+  }
+
+  function updateColumnDragPreview(boardEl, row, e) {
+    if (!dragColId) return;
+    const geom = getColumnDragGeometry(boardEl, row, e.clientX, dragColId);
+    if (!geom) return;
+    const insertAt = columnInsertIndexFromGeometry(row, geom);
+    if (insertAt === null) return;
+    const key = `colp:${row.id}:${insertAt}`;
+    if (key === lastReorderKey) return;
+    lastReorderKey = key;
+    dragColPreview = { rowId: row.id, insertAt };
+    renderRows();
+  }
+
+  function finalizeColumnDrop(boardEl, targetRow, clientX, draggedColId) {
+    const f = findColumn(draggedColId);
+    if (!f) return;
+    const geom = getColumnDragGeometry(boardEl, targetRow, clientX, draggedColId);
+    if (!geom) return;
+    const [moved] = f.row.columns.splice(f.idx, 1);
+    if (geom.targetIdx === -1) {
+      targetRow.columns.push(moved);
+    } else {
+      const targetColId = geom.cols[geom.targetIdx].dataset.colId;
+      let toIdx = targetRow.columns.findIndex((c) => c.id === targetColId);
+      if (toIdx === -1) toIdx = targetRow.columns.length;
+      if (!geom.beforeTarget) toIdx += 1;
+      targetRow.columns.splice(toIdx, 0, moved);
+    }
+  }
+
+  function getRowDragGeometry(clientY, draggedRowId) {
+    const rowEls = [...rowsWrap.querySelectorAll('.row')].filter((r) => r.dataset.rowId !== draggedRowId);
+    let targetIdx = -1;
+    let beforeTarget = false;
+    for (let i = 0; i < rowEls.length; i++) {
+      const rect = rowEls[i].getBoundingClientRect();
+      if (clientY >= rect.top && clientY <= rect.bottom) {
+        targetIdx = i;
+        beforeTarget = clientY < rect.top + rect.height / 2;
+        break;
+      }
+    }
+    if (targetIdx === -1) return null;
+    return { targetRowId: rowEls[targetIdx].dataset.rowId, beforeTarget };
+  }
+
+  function finalizeRowDrop(clientY, draggedRowId) {
+    const g = getRowDragGeometry(clientY, draggedRowId);
+    if (!g) return;
+    const fromIdx = state.rows.findIndex((r) => r.id === draggedRowId);
+    if (fromIdx === -1) return;
+    const [moved] = state.rows.splice(fromIdx, 1);
+    let toIdx = state.rows.findIndex((r) => r.id === g.targetRowId);
+    if (toIdx === -1) toIdx = state.rows.length;
+    if (!g.beforeTarget) toIdx += 1;
+    state.rows.splice(toIdx, 0, moved);
+  }
+
+  function updateRowDragPreview(e) {
+    if (!dragRowId) return;
+    const rowEls = [...rowsWrap.querySelectorAll('.row')].filter((r) => r.dataset.rowId !== dragRowId);
+    let beforeRowId = null;
+    let keySuffix = 'end';
+    for (let i = 0; i < rowEls.length; i++) {
+      const rect = rowEls[i].getBoundingClientRect();
+      if (e.clientY < rect.top + rect.height / 2) {
+        beforeRowId = rowEls[i].dataset.rowId;
+        keySuffix = beforeRowId;
+        break;
+      }
+    }
+    const key = `rowp:${keySuffix}`;
+    if (key === lastReorderKey) return;
+    lastReorderKey = key;
+    dragRowPreview = { beforeRowId };
+    renderRows();
+  }
+
+  function updateUnsortedReorderPreview(clientY, draggedId) {
+    const ul = document.getElementById('unsortedList');
+    if (!ul) return;
+    const items = [...ul.querySelectorAll('.unsorted-item')].filter((i) => i.dataset.id !== draggedId);
+    let beforeId = null;
+    let keySuffix = 'end';
+    for (let i = 0; i < items.length; i++) {
+      const rect = items[i].getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) {
+        beforeId = items[i].dataset.id;
+        keySuffix = beforeId;
+        break;
+      }
+    }
+    const key = `unsortp:${keySuffix}`;
+    if (key === lastReorderKey) return;
+    lastReorderKey = key;
+    unsortedReorderPreview = { beforeId };
+    renderUnsorted();
+  }
+
+  function finalizeUnsortedListReorder(draggedId, beforeId) {
+    const fromIdx = state.unsortedItems.findIndex((t) => t.id === draggedId);
+    if (fromIdx === -1) return;
+    const [moved] = state.unsortedItems.splice(fromIdx, 1);
+    if (beforeId) {
+      const toIdx = state.unsortedItems.findIndex((t) => t.id === beforeId);
+      state.unsortedItems.splice(toIdx === -1 ? state.unsortedItems.length : toIdx, 0, moved);
+    } else {
+      state.unsortedItems.push(moved);
+    }
+  }
+
+  function renderAll() {
+    renderRows();
+    renderUnsorted();
+  }
+
+  function renderRows() {
+    rowsWrap.innerHTML = '';
+    state.rows.forEach((row) => {
+      if (dragRowPreview && dragRowPreview.beforeRowId === row.id) {
+        rowsWrap.appendChild(elDropIndicator('row'));
+      }
+      rowsWrap.appendChild(buildRow(row));
+    });
+    if (dragRowPreview && dragRowPreview.beforeRowId === null) {
+      rowsWrap.appendChild(elDropIndicator('row'));
+    }
+
+    const addRowBtn = document.createElement('button');
+    addRowBtn.className = 'add-row';
+    addRowBtn.innerHTML = '<span style="font-size:18px;line-height:1;">+</span><span>Add row</span>';
+    addRowBtn.addEventListener('click', () => {
+      const newRow = { id: uid('r'), title: 'New row', columns: [] };
+      state.rows.push(newRow);
+      saveState();
+      renderRows();
+    });
+    rowsWrap.appendChild(addRowBtn);
+  }
+
+  function startColumnTitleEdit(newCol) {
+    requestAnimationFrame(() => {
+      const t = document.querySelector(`[data-col-id="${newCol.id}"] .column-title-text`);
+      if (t) {
+        makeEditable(t, () => newCol.title, (txt) => {
+          if (txt) { newCol.title = txt; t.textContent = txt; saveState(); }
+          else t.textContent = newCol.title;
+        });
+      }
+    });
+  }
+
+  function clearAddColumnDropHints() {
+    document.querySelectorAll('.add-column.drop-target').forEach((b) => b.classList.remove('drop-target'));
+  }
+
+  function buildRow(row) {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'row';
+    rowEl.dataset.rowId = row.id;
+
+    // ---- Row header (drag handle) ----
+    const header = document.createElement('div');
+    header.className = 'row-header';
+    header.draggable = true;
+
+    const handleSpan = document.createElement('span');
+    handleSpan.className = 'row-handle';
+    handleSpan.textContent = '⋮⋮';
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'row-title-text';
+    titleEl.textContent = row.title;
+    titleEl.title = 'Click to rename';
+    titleEl.addEventListener('mousedown', (e) => e.stopPropagation());
+    titleEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (titleEl.getAttribute('contenteditable') === 'true') return;
+      makeEditable(titleEl,
+        () => row.title,
+        (newText) => {
+          if (newText === '') {
+            titleEl.textContent = row.title;
+          } else if (row.title !== newText) {
+            row.title = newText;
+            saveState();
+          }
+        }
+      );
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+    actions.addEventListener('mousedown', (e) => e.stopPropagation());
+
+    const delRow = document.createElement('button');
+    delRow.className = 'icon-btn';
+    delRow.innerHTML = '×';
+    delRow.title = 'Delete row';
+    makeConfirmDelete(delRow, () => {
+      state.rows = state.rows.filter(r => r.id !== row.id);
+      saveState();
+      renderRows();
+    }, 'confirm-delete');
+
+    actions.appendChild(delRow);
+
+    header.appendChild(handleSpan);
+    header.appendChild(titleEl);
+    header.appendChild(actions);
+
+    // Row drag handlers
+    header.addEventListener('dragstart', (e) => {
+      if (titleEl.getAttribute('contenteditable') === 'true') {
+        e.preventDefault();
+        return;
+      }
+      clearDragPreviews();
+      dragRowId = row.id;
+      rowEl.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', row.id);
+      try { e.dataTransfer.setDragImage(rowEl, 20, 20); } catch (_) {}
+    });
+    header.addEventListener('dragend', () => {
+      rowEl.classList.remove('dragging');
+      clearDragPreviews();
+      dragRowId = null;
+      renderRows();
+    });
+
+    rowEl.appendChild(header);
+
+    // ---- Board (cards & columns) ----
+    const boardWrap = document.createElement('div');
+    boardWrap.className = 'board-wrap';
+    boardWrap.dataset.rowId = row.id;
+    attachMiddleMousePan(boardWrap);
+
+    const boardEl = document.createElement('div');
+    boardEl.className = 'board';
+    boardEl.dataset.rowId = row.id;
+
+    row.columns.forEach((col, ci) => {
+      if (dragColPreview && dragColPreview.rowId === row.id && dragColPreview.insertAt === ci) {
+        boardEl.appendChild(elDropIndicator('column'));
+      }
+      boardEl.appendChild(buildColumn(col, row));
+    });
+    if (dragColPreview && dragColPreview.rowId === row.id && dragColPreview.insertAt === row.columns.length) {
+      boardEl.appendChild(elDropIndicator('column'));
+    }
+
+    // Column drag: preview on dragover, commit on drop
+    boardEl.addEventListener('dragover', (e) => {
+      if (!dragColId) return;
+      const found = findColumn(dragColId);
+      if (!found || found.row.id !== row.id) {
+        if (!found) return;
+      }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      updateColumnDragPreview(boardEl, row, e);
+    });
+    boardEl.addEventListener('dragover', (e) => {
+      if (!dragUnsortedId || dragColId) return;
+      if (e.target.closest('.column, .add-column')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (dragUnsortedBoardPreview) {
+        dragUnsortedBoardPreview = null;
+        lastReorderKey = null;
+        renderRows();
+      }
+    });
+    boardEl.addEventListener('drop', (e) => {
+      if (dragColId) {
+        e.preventDefault();
+        finalizeColumnDrop(boardEl, row, e.clientX, dragColId);
+        clearDragPreviews();
+        dragColId = null;
+        saveState();
+        renderRows();
+      }
+    });
+
+    // Add column tile
+    const addColBtn = document.createElement('button');
+    addColBtn.className = 'add-column';
+    addColBtn.innerHTML = '<span style="font-size:18px;line-height:1;">+</span><span>Add column</span>';
+    addColBtn.addEventListener('click', () => {
+      const newCol = { id: uid('col'), title: 'New column', cards: [] };
+      row.columns.push(newCol);
+      saveState();
+      renderRows();
+      startColumnTitleEdit(newCol);
+    });
+    addColBtn.addEventListener('dragover', (e) => {
+      if (!dragCard && !dragUnsortedId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      addColBtn.classList.add('drop-target');
+      let cleared = false;
+      if (dragCard && dragCardPreview) {
+        dragCardPreview = null;
+        cleared = true;
+      }
+      if (dragUnsortedId && dragUnsortedBoardPreview) {
+        dragUnsortedBoardPreview = null;
+        cleared = true;
+      }
+      if (cleared) {
+        lastReorderKey = null;
+        renderRows();
+      }
+    });
+    addColBtn.addEventListener('dragleave', (e) => {
+      if (!dragCard && !dragUnsortedId) return;
+      const rel = e.relatedTarget;
+      if (rel && addColBtn.contains(rel)) return;
+      addColBtn.classList.remove('drop-target');
+    });
+    addColBtn.addEventListener('drop', (e) => {
+      if (!dragCard && !dragUnsortedId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      addColBtn.classList.remove('drop-target');
+      if (dragUnsortedId) {
+        const idx = state.unsortedItems.findIndex((t) => t.id === dragUnsortedId);
+        if (idx === -1) {
+          clearDragPreviews();
+          dragUnsortedId = null;
+          return;
+        }
+        const [item] = state.unsortedItems.splice(idx, 1);
+        const newCard = { id: uid('c'), text: item.text, description: '', links: [], tags: [] };
+        const newCol = { id: uid('col'), title: 'New column', cards: [newCard] };
+        row.columns.push(newCol);
+        clearDragPreviews();
+        dragUnsortedId = null;
+        saveState();
+        renderRows();
+        startColumnTitleEdit(newCol);
+        return;
+      }
+      const f = findCard(dragCard.cardId);
+      if (!f) {
+        clearDragPreviews();
+        dragCard = null;
+        return;
+      }
+      const [moved] = f.col.cards.splice(f.idx, 1);
+      const newCol = { id: uid('col'), title: 'New column', cards: [moved] };
+      row.columns.push(newCol);
+      clearDragPreviews();
+      dragCard = null;
+      saveState();
+      renderRows();
+      startColumnTitleEdit(newCol);
+    });
+    boardEl.appendChild(addColBtn);
+
+    boardWrap.appendChild(boardEl);
+    rowEl.appendChild(boardWrap);
+
+    return rowEl;
+  }
+
+  function buildColumn(col, row) {
+    const colEl = document.createElement('div');
+    colEl.className = 'column';
+    colEl.dataset.colId = col.id;
+
+    // ---- Column header ----
+    const header = document.createElement('div');
+    header.className = 'column-header';
+    header.draggable = true;
+
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'column-title';
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'column-title-text';
+    titleEl.textContent = col.title;
+    titleEl.title = 'Click to rename';
+    titleEl.addEventListener('mousedown', (e) => e.stopPropagation());
+    titleEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (titleEl.getAttribute('contenteditable') === 'true') return;
+      makeEditable(titleEl,
+        () => col.title,
+        (newText) => {
+          if (newText === '') {
+            titleEl.textContent = col.title;
+          } else if (col.title !== newText) {
+            col.title = newText;
+            saveState();
+          }
+        }
+      );
+    });
+
+    const count = document.createElement('span');
+    count.className = 'count';
+    count.textContent = col.cards.length;
+
+    titleWrap.appendChild(titleEl);
+    titleWrap.appendChild(count);
+
+    const actions = document.createElement('div');
+    actions.className = 'col-actions';
+    actions.addEventListener('mousedown', (e) => e.stopPropagation());
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'icon-btn';
+    delBtn.innerHTML = '×';
+    delBtn.title = 'Delete column';
+    makeConfirmDelete(delBtn, () => {
+      const f = findColumn(col.id);
+      if (!f) return;
+      f.row.columns.splice(f.idx, 1);
+      saveState();
+      renderRows();
+    }, 'confirm-delete');
+
+    actions.appendChild(delBtn);
+    header.appendChild(titleWrap);
+    header.appendChild(actions);
+
+    header.addEventListener('dragstart', (e) => {
+      if (titleEl.getAttribute('contenteditable') === 'true') {
+        e.preventDefault();
+        return;
+      }
+      e.stopPropagation();
+      clearDragPreviews();
+      dragColId = col.id;
+      colEl.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', col.id);
+      try { e.dataTransfer.setDragImage(colEl, 20, 20); } catch (_) {}
+    });
+    header.addEventListener('dragend', () => {
+      colEl.classList.remove('dragging');
+      clearDragPreviews();
+      dragColId = null;
+      renderRows();
+    });
+
+    header.addEventListener('dragover', (e) => {
+      if (!dragUnsortedId || dragColId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const insertAt = col.cards.length;
+      const key = `usbp:${col.id}:h:${insertAt}`;
+      if (key === lastReorderKey) return;
+      lastReorderKey = key;
+      dragUnsortedBoardPreview = { colId: col.id, insertAt };
+      renderRows();
+    });
+    header.addEventListener('drop', (e) => {
+      if (!dragUnsortedId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      promoteUnsortedToColumn(dragUnsortedId, col, col.cards.length);
+      clearDragPreviews();
+      dragUnsortedId = null;
+      saveState();
+      renderAll();
+    });
+
+    colEl.appendChild(header);
+
+    // ---- Cards ----
+    const cardsEl = document.createElement('div');
+    cardsEl.className = 'cards';
+    cardsEl.dataset.colId = col.id;
+
+    col.cards.forEach((card, ci) => {
+      if (shouldShowCardDropIndicator(col, ci)) {
+        cardsEl.appendChild(elDropIndicator('card'));
+      }
+      cardsEl.appendChild(buildCard(card, col));
+    });
+    if (shouldShowCardDropIndicator(col, col.cards.length)) {
+      cardsEl.appendChild(elDropIndicator('card'));
+    }
+
+    const addSlot = document.createElement('button');
+    addSlot.type = 'button';
+    addSlot.className = 'card-add-slot';
+    addSlot.title = 'Add card';
+    addSlot.setAttribute('aria-label', 'Add card');
+    addSlot.textContent = '+';
+    addSlot.addEventListener('mousedown', (e) => e.stopPropagation());
+    addSlot.addEventListener('click', (e) => {
+      e.stopPropagation();
+      addCardTo(col);
+    });
+    cardsEl.appendChild(addSlot);
+
+    // Card drag: preview only on dragover; commit on drop. Unsorted → column uses same slot preview.
+    cardsEl.addEventListener('dragover', (e) => {
+      if (!dragCard && !dragUnsortedId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      if (dragCard) updateCardDragPreview(cardsEl, col, e);
+      else if (dragUnsortedId) updateUnsortedBoardPreview(cardsEl, col, e);
+    });
+    cardsEl.addEventListener('drop', (e) => {
+      if (dragUnsortedId) {
+        e.preventDefault();
+        e.stopPropagation();
+        const insertAt = computeCardInsertIndexFromEvent(cardsEl, col, e.clientY);
+        promoteUnsortedToColumn(dragUnsortedId, col, insertAt);
+        clearDragPreviews();
+        dragUnsortedId = null;
+        saveState();
+        renderAll();
+        return;
+      }
+      if (dragCard) {
+        e.preventDefault();
+        e.stopPropagation();
+        finalizeCardDrop(dragCard.cardId, col, e.clientY, cardsEl);
+        clearDragPreviews();
+        dragCard = null;
+        saveState();
+        renderRows();
+      }
+    });
+
+    colEl.appendChild(cardsEl);
+    return colEl;
+  }
+
+  function buildCard(card, col) {
+    // Backfill missing fields (forward compat for older state)
+    if (typeof card.description !== 'string') card.description = '';
+    if (!Array.isArray(card.links)) card.links = [];
+    if (!Array.isArray(card.tags)) card.tags = [];
+
+    const cardEl = document.createElement('div');
+    cardEl.className = 'card';
+    cardEl.draggable = true;
+    cardEl.dataset.cardId = card.id;
+
+    // Hide if filter is active and this card doesn't match
+    if (!cardMatchesFilter(card)) cardEl.classList.add('hidden');
+
+    const textEl = document.createElement('div');
+    textEl.className = 'card-text';
+    textEl.textContent = card.text;
+    cardEl.appendChild(textEl);
+
+    // Meta row (links + tags)
+    const hasMeta = card.links.length > 0 || card.tags.length > 0;
+    if (hasMeta) {
+      const meta = document.createElement('div');
+      meta.className = 'card-meta';
+
+      card.links.forEach(link => {
+        if (!link || !link.url) return;
+        const a = document.createElement('a');
+        a.className = 'card-link';
+        a.href = normalizeUrl(link.url);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.draggable = false;
+        a.textContent = link.name || link.url;
+        a.title = link.url;
+        // Stop mousedown/click bubbling so the card’s HTML5 drag does not steal the gesture;
+        // use native target=_blank navigation (avoids popup blockers that block window.open).
+        a.addEventListener('mousedown', (e) => e.stopPropagation());
+        a.addEventListener('click', (e) => e.stopPropagation());
+        meta.appendChild(a);
+      });
+
+      const activeTags = getActiveTagFilters();
+      card.tags.forEach(tag => {
+        const t = document.createElement('span');
+        t.className = 'card-tag' + (activeTags.includes(tag.toLowerCase()) ? ' active' : '');
+        t.textContent = '#' + tag;
+        t.title = `Filter by #${tag}`;
+        applyTagColorsToElement(t, tag);
+        t.addEventListener('mousedown', (e) => e.stopPropagation());
+        t.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleTagFilter(tag);
+        });
+        meta.appendChild(t);
+      });
+
+      cardEl.appendChild(meta);
+    }
+
+    // Subtle indicator if there's an extended description
+    if (card.description && card.description.trim() !== '') {
+      const dot = document.createElement('span');
+      dot.className = 'card-has-details';
+      dot.textContent = '≡';
+      dot.title = 'Has description';
+      cardEl.appendChild(dot);
+    }
+
+    const del = document.createElement('button');
+    del.className = 'delete';
+    del.innerHTML = '×';
+    del.title = 'Delete';
+    makeConfirmDelete(del, () => {
+      const f = findCard(card.id);
+      if (!f) return;
+      f.col.cards.splice(f.idx, 1);
+      saveState();
+      renderRows();
+    });
+    cardEl.appendChild(del);
+
+    cardEl.addEventListener('click', (e) => {
+      if (e.target === del || del.contains(e.target)) return;
+      if (textEl.getAttribute('contenteditable') === 'true') return;
+      // Don't enter edit mode if a chip was clicked
+      if (e.target.closest('.card-link, .card-tag')) return;
+      startCardEdit(card, col, textEl);
+    });
+
+    cardEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openCardContextMenu(card, col, textEl, e.clientX, e.clientY);
+    });
+
+    cardEl.addEventListener('dragstart', (e) => {
+      if (textEl.getAttribute('contenteditable') === 'true') {
+        e.preventDefault();
+        return;
+      }
+      e.stopPropagation();
+      clearDragPreviews();
+      dragCard = { cardId: card.id };
+      cardEl.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', card.id);
+    });
+    cardEl.addEventListener('dragend', () => {
+      cardEl.classList.remove('dragging');
+      clearAddColumnDropHints();
+      clearDragPreviews();
+      dragCard = null;
+      renderRows();
+    });
+
+    return cardEl;
+  }
+
+  // Inline-edit the card's main text. Extracted so the context menu can call it.
+  function startCardEdit(card, col, textEl) {
+    const colIdAtEdit = col.id;
+    makeEditable(textEl,
+      () => card.text,
+      (newText) => {
+        const f = findCard(card.id);
+        if (!f) return;
+        if (newText === '') {
+          f.col.cards.splice(f.idx, 1);
+          saveState();
+          renderRows();
+        } else if (card.text !== newText) {
+          card.text = newText;
+          saveState();
+        }
+      },
+      {
+        multiline: true,
+        onEnter: () => {
+          const stillExists = state.rows
+            .flatMap(r => r.columns)
+            .flatMap(c => c.cards)
+            .some(c => c.id === card.id);
+          if (!stillExists) return;
+          const liveCol = state.rows
+            .flatMap(r => r.columns)
+            .find(c => c.id === colIdAtEdit);
+          if (!liveCol) return;
+          const idx = liveCol.cards.findIndex(c => c.id === card.id);
+          const insertAt = idx === -1 ? liveCol.cards.length : idx + 1;
+          insertNewCardAt(liveCol, insertAt);
+        }
+      }
+    );
+  }
+
+  // Listen for row drags on the wrapper (rows can move past each other)
+  rowsWrap.addEventListener('dragover', (e) => {
+    if (!dragRowId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    updateRowDragPreview(e);
+  });
+  rowsWrap.addEventListener('drop', (e) => {
+    if (dragRowId) {
+      e.preventDefault();
+      finalizeRowDrop(e.clientY, dragRowId);
+      clearDragPreviews();
+      dragRowId = null;
+      saveState();
+      renderRows();
+    }
+  });
+
+  function addCardTo(col) {
+    insertNewCardAt(col, col.cards.length);
+  }
+
+  // Inserts a new empty card at the given index in the given column, then
+  // immediately enters edit mode. Pressing Enter chains another below;
+  // Escape or blurring with empty text removes it.
+  function insertNewCardAt(col, idx) {
+    const newCard = { id: uid('c'), text: '', description: '', links: [], tags: [] };
+    col.cards.splice(idx, 0, newCard);
+    saveState();
+    renderRows();
+    requestAnimationFrame(() => {
+      const t = document.querySelector(`[data-card-id="${newCard.id}"] .card-text`);
+      if (!t) return;
+      makeEditable(t,
+        () => newCard.text,
+        (txt) => {
+          const f = findCard(newCard.id);
+          if (!f) return;
+          if (txt === '') {
+            f.col.cards.splice(f.idx, 1);
+            saveState();
+            renderRows();
+          } else if (newCard.text !== txt) {
+            newCard.text = txt;
+            saveState();
+          }
+        },
+        {
+          multiline: true,
+          onEnter: () => {
+            // If the card was empty (and thus self-deleted), don't chain.
+            const stillExists = state.rows
+              .flatMap(r => r.columns)
+              .flatMap(c => c.cards)
+              .some(c => c.id === newCard.id);
+            if (!stillExists) return;
+
+            const liveCol = state.rows
+              .flatMap(r => r.columns)
+              .find(c => c.id === col.id);
+            if (!liveCol) return;
+            const i = liveCol.cards.findIndex(c => c.id === newCard.id);
+            const insertAt = i === -1 ? liveCol.cards.length : i + 1;
+            insertNewCardAt(liveCol, insertAt);
+          }
+        }
+      );
+    });
+  }
+
+  // ============================================================
+  // MIDDLE-MOUSE HORIZONTAL PAN
+  // Default: pan only the row under cursor.
+  // Hold shift (at any point during the drag): pan all rows together.
+  // ============================================================
+  function attachMiddleMousePan(boardWrap) {
+    let panState = null;
+    boardWrap.addEventListener('mousedown', (e) => {
+      if (e.button !== 1) return;
+      e.preventDefault();
+      // Snapshot starting scroll positions for all boards so we can
+      // resume per-board panning even if shift is toggled mid-drag.
+      const allWraps = [...document.querySelectorAll('.board-wrap')];
+      panState = {
+        startX: e.clientX,
+        startScrollLeft: boardWrap.scrollLeft,
+        allWraps: allWraps.map(w => ({ el: w, startScrollLeft: w.scrollLeft })),
+        // To allow shift to be toggled mid-drag without jumps, we track
+        // each board's "anchor" — the (clientX, scrollLeft) reference
+        // from which the next delta is computed. When shift state changes,
+        // we re-anchor.
+        shiftActive: e.shiftKey
+      };
+      // Re-anchor all boards initially
+      panState.anchorX = e.clientX;
+      panState.allWraps.forEach(w => w.anchorScrollLeft = w.el.scrollLeft);
+      boardWrap.querySelector('.board')?.classList.add('panning');
+    });
+    boardWrap.addEventListener('auxclick', (e) => {
+      if (e.button === 1) e.preventDefault();
+    });
+    const onMove = (e) => {
+      if (!panState) return;
+      e.preventDefault();
+
+      // Re-anchor when shift state changes mid-drag
+      if (e.shiftKey !== panState.shiftActive) {
+        panState.shiftActive = e.shiftKey;
+        panState.anchorX = e.clientX;
+        panState.allWraps.forEach(w => w.anchorScrollLeft = w.el.scrollLeft);
+      }
+
+      const dx = e.clientX - panState.anchorX;
+      if (panState.shiftActive) {
+        panState.allWraps.forEach(w => {
+          w.el.scrollLeft = w.anchorScrollLeft - dx;
+        });
+      } else {
+        const me = panState.allWraps.find(w => w.el === boardWrap);
+        if (me) boardWrap.scrollLeft = me.anchorScrollLeft - dx;
+      }
+    };
+    const onUp = () => {
+      if (!panState) return;
+      panState = null;
+      boardWrap.querySelector('.board')?.classList.remove('panning');
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  // ============================================================
+  // UNSORTED ITEMS (side list; drag into a column or "Add column" to promote)
+  // ============================================================
+  const unsortedList = document.getElementById('unsortedList');
+  const unsortedInput = document.getElementById('unsortedInput');
+  const sidePanel = document.getElementById('sidePanel');
+
+  function renderUnsorted() {
+    unsortedList.innerHTML = '';
+
+    if (state.unsortedItems.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = 'No unsorted items yet.';
+      unsortedList.appendChild(empty);
+      return;
+    }
+
+    state.unsortedItems.forEach((item) => {
+      if (unsortedReorderPreview && unsortedReorderPreview.beforeId === item.id) {
+        unsortedList.appendChild(elDropIndicator('unsorted'));
+      }
+      unsortedList.appendChild(buildUnsortedItem(item));
+    });
+    if (unsortedReorderPreview && unsortedReorderPreview.beforeId === null) {
+      unsortedList.appendChild(elDropIndicator('unsorted'));
+    }
+  }
+
+  function buildUnsortedItem(item) {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'unsorted-item' + (item.done ? ' done' : '');
+    rowEl.dataset.id = item.id;
+    rowEl.draggable = true;
+
+    const handle = document.createElement('span');
+    handle.className = 'unsorted-handle';
+    handle.textContent = '⋮⋮';
+    handle.title = 'Drag to reorder or into a column';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'unsorted-checkbox';
+    cb.checked = item.done;
+    cb.addEventListener('mousedown', (e) => e.stopPropagation());
+    cb.addEventListener('change', () => {
+      item.done = cb.checked;
+      rowEl.classList.toggle('done', item.done);
+      saveState();
+    });
+
+    const textEl = document.createElement('div');
+    textEl.className = 'unsorted-text';
+    fillUnsortedTextWithLinks(textEl, item.text);
+    textEl.addEventListener('mousedown', (e) => e.stopPropagation());
+    textEl.addEventListener('click', (e) => {
+      if (textEl.getAttribute('contenteditable') === 'true') return;
+      if (e.target.closest('a.unsorted-inline-link')) return;
+      textEl.textContent = item.text;
+      makeEditable(textEl,
+        () => item.text,
+        (txt) => {
+          const idx = state.unsortedItems.findIndex((t) => t.id === item.id);
+          if (idx === -1) return;
+          if (txt === '') { state.unsortedItems.splice(idx, 1); saveState(); renderUnsorted(); return; }
+          if (item.text !== txt) { item.text = txt; saveState(); }
+          fillUnsortedTextWithLinks(textEl, item.text);
+        },
+        { multiline: true }
+      );
+    });
+
+    const del = document.createElement('button');
+    del.className = 'unsorted-delete';
+    del.innerHTML = '×';
+    del.title = 'Delete';
+    del.addEventListener('mousedown', (e) => e.stopPropagation());
+    makeConfirmDelete(del, () => {
+      state.unsortedItems = state.unsortedItems.filter((t) => t.id !== item.id);
+      saveState();
+      renderUnsorted();
+    });
+
+    rowEl.addEventListener('dragstart', (e) => {
+      if (textEl.getAttribute('contenteditable') === 'true') {
+        e.preventDefault();
+        return;
+      }
+      clearDragPreviews();
+      dragUnsortedId = item.id;
+      rowEl.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', item.id);
+    });
+    rowEl.addEventListener('dragend', () => {
+      rowEl.classList.remove('dragging');
+      clearAddColumnDropHints();
+      clearDragPreviews();
+      dragUnsortedId = null;
+      // Re-render rows too: board may still show card/unsorted drop indicators after a cancelled drag.
+      renderAll();
+    });
+
+    rowEl.appendChild(handle);
+    rowEl.appendChild(cb);
+    rowEl.appendChild(textEl);
+    rowEl.appendChild(del);
+    return rowEl;
+  }
+
+  unsortedList.addEventListener('dragover', (e) => {
+    if (!dragUnsortedId) return;
+    if (!unsortedList.contains(e.target)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragUnsortedBoardPreview) {
+      dragUnsortedBoardPreview = null;
+      lastReorderKey = null;
+      renderRows();
+    }
+    updateUnsortedReorderPreview(e.clientY, dragUnsortedId);
+  });
+  unsortedList.addEventListener('dragleave', (e) => {
+    if (!dragUnsortedId) return;
+    const rel = e.relatedTarget;
+    if (rel && unsortedList.contains(rel)) return;
+    unsortedReorderPreview = null;
+    lastReorderKey = null;
+    renderUnsorted();
+  });
+  unsortedList.addEventListener('drop', (e) => {
+    if (!dragUnsortedId) return;
+    e.preventDefault();
+    if (unsortedReorderPreview) {
+      finalizeUnsortedListReorder(dragUnsortedId, unsortedReorderPreview.beforeId);
+      saveState();
+    }
+    clearDragPreviews();
+    dragUnsortedId = null;
+    renderUnsorted();
+  });
+
+  unsortedInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const text = unsortedInput.value.trim();
+      if (!text) return;
+      state.unsortedItems.push({ id: uid('u'), text, done: false });
+      unsortedInput.value = '';
+      saveState();
+      renderUnsorted();
+    }
+  });
+
+  // ============================================================
+  // FILTER / SEARCH
+  // Search syntax:
+  //   plain words        -> match against text + description (all words required)
+  //   #tag               -> tag condition (case-insensitive); see state.tagFilterMode
+  //   multiple #tag      -> Any = card has ≥1 tag; All = card has every tag
+  //   plain + #tag mixed -> text conditions AND tag condition AND together
+  // ============================================================
+  function parseQuery(q) {
+    const tags = [];
+    const words = [];
+    if (!q) return { tags, words };
+    const tokens = q.split(/\s+/).filter(Boolean);
+    tokens.forEach(tok => {
+      if (tok.startsWith('#') && tok.length > 1) {
+        tags.push(tok.slice(1).toLowerCase());
+      } else {
+        words.push(tok.toLowerCase());
+      }
+    });
+    return { tags, words };
+  }
+
+  function getActiveTagFilters() {
+    return parseQuery(state.searchQuery).tags;
+  }
+
+  function cardMatchesFilter(card) {
+    const q = state.searchQuery?.trim();
+    if (!q) return true;
+    const { tags, words } = parseQuery(q);
+    const cardTagsLower = (card.tags || []).map(t => t.toLowerCase());
+
+    // Tag filter respects state.tagFilterMode
+    if (tags.length > 0) {
+      if (state.tagFilterMode === 'any') {
+        // at least one of the queried tags must be present
+        const anyMatch = tags.some(t => cardTagsLower.includes(t));
+        if (!anyMatch) return false;
+      } else {
+        // 'all' (default) — every queried tag must be present
+        for (const t of tags) {
+          if (!cardTagsLower.includes(t)) return false;
+        }
+      }
+    }
+
+    // Text words always AND together (typical search behavior)
+    if (words.length > 0) {
+      const hay = (card.text + ' ' + (card.description || '')).toLowerCase();
+      for (const w of words) {
+        if (!hay.includes(w)) return false;
+      }
+    }
+    return true;
+  }
+
+  function toggleTagFilter(tag) {
+    const tagLower = tag.toLowerCase();
+    const { tags, words } = parseQuery(state.searchQuery);
+    let newTags;
+    if (tags.includes(tagLower)) {
+      newTags = tags.filter(t => t !== tagLower);
+    } else {
+      newTags = [...tags, tagLower];
+    }
+    const newQuery = [...words, ...newTags.map(t => '#' + t)].join(' ');
+    setSearchQuery(newQuery);
+  }
+
+  function setSearchQuery(q) {
+    state.searchQuery = q || '';
+    searchInput.value = state.searchQuery;
+    searchWrap.classList.toggle('has-value', state.searchQuery.length > 0);
+    updateTagModeToggleUI();
+    saveState();
+    renderRows();
+  }
+
+  const searchInput = document.getElementById('searchInput');
+  const searchWrap = document.getElementById('searchWrap');
+  const searchClear = document.getElementById('searchClear');
+  const tagModeToggle = document.getElementById('tagModeToggle');
+
+  function updateTagModeToggleUI() {
+    if (!tagModeToggle) return;
+    const n = parseQuery(state.searchQuery).tags.length;
+    tagModeToggle.classList.toggle('dim', n < 2);
+    tagModeToggle.querySelectorAll('button[data-mode]').forEach((b) => {
+      b.classList.toggle('active', b.getAttribute('data-mode') === state.tagFilterMode);
+    });
+  }
+
+  if (tagModeToggle) {
+    tagModeToggle.querySelectorAll('button[data-mode]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const mode = btn.getAttribute('data-mode');
+        if (mode !== 'any' && mode !== 'all') return;
+        state.tagFilterMode = mode;
+        updateTagModeToggleUI();
+        saveState();
+        renderRows();
+      });
+    });
+  }
+
+  searchInput.addEventListener('input', () => {
+    state.searchQuery = searchInput.value;
+    searchWrap.classList.toggle('has-value', state.searchQuery.length > 0);
+    updateTagModeToggleUI();
+    saveState();
+    renderRows();
+  });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setSearchQuery('');
+      searchInput.blur();
+    }
+  });
+  searchClear.addEventListener('click', () => {
+    setSearchQuery('');
+    searchInput.focus();
+  });
+
+  const btnExport = document.getElementById('btnExport');
+  const btnImport = document.getElementById('btnImport');
+  const btnReset = document.getElementById('btnReset');
+  const importFileInput = document.getElementById('importFileInput');
+  if (btnExport) btnExport.addEventListener('click', () => exportBoardToFile());
+  if (btnImport && importFileInput) {
+    btnImport.addEventListener('click', () => importFileInput.click());
+    importFileInput.addEventListener('change', () => {
+      const file = importFileInput.files && importFileInput.files[0];
+      importFileInput.value = '';
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const text = typeof reader.result === 'string' ? reader.result : '';
+          const parsed = JSON.parse(text);
+          appendFromImportPayload(parsed);
+          saveState();
+          renderAll();
+        } catch (err) {
+          window.alert(err instanceof Error ? err.message : 'Import failed.');
+        }
+      };
+      reader.onerror = () => window.alert('Could not read the file.');
+      reader.readAsText(file);
+    });
+  }
+  if (btnReset) btnReset.addEventListener('click', () => openResetConfirmModal());
+
+  // ============================================================
+  // CONTEXT MENU
+  // ============================================================
+  const ctxMount = document.getElementById('ctxMount');
+
+  function closeContextMenu() {
+    ctxMount.innerHTML = '';
+  }
+
+  function openCardContextMenu(card, col, textEl, x, y) {
+    closeContextMenu();
+    closeModal();
+
+    const menu = document.createElement('div');
+    menu.className = 'ctx-menu';
+
+    const items = [
+      { label: 'Edit description', icon: '✎', onClick: () => startCardEdit(card, col, textEl) },
+      { label: 'Edit details…',    icon: '☰', onClick: () => openCardDetailsModal(card) },
+      { divider: true },
+      { label: 'Demote to Unsorted…', icon: '↓', onClick: () => openDemoteConfirmModal(card) },
+      { divider: true },
+      { label: 'Delete card', icon: '×', danger: true, onClick: () => {
+        const f = findCard(card.id);
+        if (!f) return;
+        f.col.cards.splice(f.idx, 1);
+        saveState();
+        renderRows();
+      }}
+    ];
+
+    items.forEach(item => {
+      if (item.divider) {
+        const d = document.createElement('div');
+        d.className = 'ctx-divider';
+        menu.appendChild(d);
+        return;
+      }
+      const btn = document.createElement('button');
+      btn.className = 'ctx-item' + (item.danger ? ' danger' : '');
+      btn.innerHTML = `<span style="width:14px;text-align:center;opacity:0.7;">${item.icon}</span><span>${item.label}</span>`;
+      btn.addEventListener('click', () => {
+        closeContextMenu();
+        item.onClick();
+      });
+      menu.appendChild(btn);
+    });
+
+    ctxMount.appendChild(menu);
+
+    // Position, keeping in viewport
+    const rect = menu.getBoundingClientRect();
+    const px = Math.min(x, window.innerWidth - rect.width - 8);
+    const py = Math.min(y, window.innerHeight - rect.height - 8);
+    menu.style.left = px + 'px';
+    menu.style.top = py + 'px';
+
+    // Dismiss on outside click / escape
+    setTimeout(() => {
+      const offClick = (e) => {
+        if (!menu.contains(e.target)) {
+          closeContextMenu();
+          window.removeEventListener('mousedown', offClick, true);
+          window.removeEventListener('keydown', offKey, true);
+        }
+      };
+      const offKey = (e) => {
+        if (e.key === 'Escape') {
+          closeContextMenu();
+          window.removeEventListener('mousedown', offClick, true);
+          window.removeEventListener('keydown', offKey, true);
+        }
+      };
+      window.addEventListener('mousedown', offClick, true);
+      window.addEventListener('keydown', offKey, true);
+    }, 0);
+  }
+
+  // ============================================================
+  // CARD DETAILS MODAL
+  // ============================================================
+  const modalMount = document.getElementById('modalMount');
+
+  function closeModal() {
+    modalMount.innerHTML = '';
+  }
+
+  function openResetConfirmModal() {
+    closeContextMenu();
+    closeModal();
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.addEventListener('click', (e) => e.stopPropagation());
+    modal.addEventListener('mousedown', (e) => e.stopPropagation());
+
+    const header = document.createElement('div');
+    header.className = 'modal-header';
+    const title = document.createElement('h3');
+    title.textContent = 'Reset board?';
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn-icon';
+    closeBtn.innerHTML = '×';
+    closeBtn.title = 'Close';
+    closeBtn.addEventListener('click', () => closeModal());
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    const p = document.createElement('p');
+    p.style.margin = '0';
+    p.style.fontSize = '14px';
+    p.style.lineHeight = '1.55';
+    p.style.color = 'var(--text)';
+    p.textContent = 'This removes every row, column, card, and unsorted item, and clears the search filter. This cannot be undone.';
+    body.appendChild(p);
+
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => closeModal());
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'btn btn-danger';
+    resetBtn.textContent = 'Reset everything';
+    resetBtn.addEventListener('click', () => {
+      state.rows = [];
+      state.unsortedItems = [];
+      setSearchQuery('');
+      _seq = 100;
+      closeModal();
+      saveState();
+      renderAll();
+    });
+    footer.appendChild(cancelBtn);
+    footer.appendChild(resetBtn);
+
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    backdrop.appendChild(modal);
+    modalMount.appendChild(backdrop);
+
+    backdrop.addEventListener('click', () => closeModal());
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        closeModal();
+        window.removeEventListener('keydown', escHandler);
+      }
+    };
+    window.addEventListener('keydown', escHandler);
+  }
+
+  function openDemoteConfirmModal(card) {
+    closeContextMenu();
+    closeModal();
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.addEventListener('click', (e) => e.stopPropagation());
+    modal.addEventListener('mousedown', (e) => e.stopPropagation());
+
+    const header = document.createElement('div');
+    header.className = 'modal-header';
+    const title = document.createElement('h3');
+    title.textContent = 'Demote to Unsorted?';
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn-icon';
+    closeBtn.innerHTML = '×';
+    closeBtn.title = 'Close';
+    closeBtn.addEventListener('click', () => closeModal());
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    const p = document.createElement('p');
+    p.style.margin = '0';
+    p.style.fontSize = '14px';
+    p.style.lineHeight = '1.55';
+    p.style.color = 'var(--text)';
+    p.textContent = 'This turns the card into a line item in Unsorted Items with only its title text kept. The description, links, and tags will be permanently removed.';
+
+    body.appendChild(p);
+
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => closeModal());
+    const demoteBtn = document.createElement('button');
+    demoteBtn.className = 'btn btn-danger';
+    demoteBtn.textContent = 'Demote';
+    demoteBtn.addEventListener('click', () => {
+      const f = findCard(card.id);
+      if (!f) {
+        closeModal();
+        return;
+      }
+      f.col.cards.splice(f.idx, 1);
+      state.unsortedItems.push({ id: uid('u'), text: card.text, done: false });
+      closeModal();
+      saveState();
+      renderAll();
+    });
+    footer.appendChild(cancelBtn);
+    footer.appendChild(demoteBtn);
+
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    backdrop.appendChild(modal);
+    modalMount.appendChild(backdrop);
+
+    backdrop.addEventListener('click', () => closeModal());
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        closeModal();
+        window.removeEventListener('keydown', escHandler);
+      }
+    };
+    window.addEventListener('keydown', escHandler);
+  }
+
+  function openCardDetailsModal(card) {
+    closeContextMenu();
+    closeModal();
+
+    // Local working copy so cancel is non-destructive
+    function dedupeTagsCaseInsensitive(tags) {
+      const seen = new Set();
+      const out = [];
+      for (const raw of tags) {
+        const t = String(raw || '').trim().replace(/^#/, '');
+        if (!t) continue;
+        const k = t.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(t);
+      }
+      return out;
+    }
+
+    const draft = {
+      description: card.description || '',
+      links: (card.links || []).map(l => ({ ...l })),
+      tags: dedupeTagsCaseInsensitive(card.tags || [])
+    };
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.addEventListener('click', (e) => e.stopPropagation());
+    modal.addEventListener('mousedown', (e) => e.stopPropagation());
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'modal-header';
+    const title = document.createElement('h3');
+    title.textContent = card.text ? `Details · ${card.text.length > 60 ? card.text.slice(0,60) + '…' : card.text}` : 'Card details';
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn-icon';
+    closeBtn.innerHTML = '×';
+    closeBtn.title = 'Close';
+    closeBtn.addEventListener('click', () => closeModal());
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+
+    // Body
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+
+    // -- Description
+    const descField = document.createElement('div');
+    descField.className = 'modal-field';
+    const descLabel = document.createElement('label');
+    descLabel.textContent = 'Description';
+    const descTa = document.createElement('textarea');
+    descTa.className = 'modal-textarea';
+    descTa.placeholder = 'Add an extended description…';
+    descTa.value = draft.description;
+    descTa.addEventListener('input', () => { draft.description = descTa.value; });
+    descField.appendChild(descLabel);
+    descField.appendChild(descTa);
+    body.appendChild(descField);
+
+    // -- Links
+    const linksField = document.createElement('div');
+    linksField.className = 'modal-field';
+    const linksLabel = document.createElement('label');
+    linksLabel.textContent = 'Links';
+    const linkRows = document.createElement('div');
+    linkRows.className = 'link-rows';
+
+    function rebuildLinkRows() {
+      linkRows.innerHTML = '';
+      draft.links.forEach((link, i) => {
+        const row = document.createElement('div');
+        row.className = 'link-row';
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'modal-input link-name';
+        nameInput.placeholder = 'Name';
+        nameInput.value = link.name || '';
+        nameInput.addEventListener('input', () => { draft.links[i].name = nameInput.value; });
+
+        const urlInput = document.createElement('input');
+        urlInput.type = 'text';
+        urlInput.className = 'modal-input';
+        urlInput.placeholder = 'https://…';
+        urlInput.value = link.url || '';
+        urlInput.addEventListener('input', () => { draft.links[i].url = urlInput.value; });
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'btn-icon';
+        removeBtn.innerHTML = '×';
+        removeBtn.title = 'Remove link';
+        removeBtn.addEventListener('click', () => {
+          draft.links.splice(i, 1);
+          rebuildLinkRows();
+        });
+
+        row.appendChild(nameInput);
+        row.appendChild(urlInput);
+        row.appendChild(removeBtn);
+        linkRows.appendChild(row);
+      });
+    }
+    rebuildLinkRows();
+
+    const addLinkBtn = document.createElement('button');
+    addLinkBtn.className = 'add-row-btn';
+    addLinkBtn.textContent = '+ Add link';
+    addLinkBtn.addEventListener('click', () => {
+      draft.links.push({ name: '', url: '' });
+      rebuildLinkRows();
+      // focus the new name input
+      requestAnimationFrame(() => {
+        const inputs = linkRows.querySelectorAll('input.link-name');
+        inputs[inputs.length - 1]?.focus();
+      });
+    });
+
+    linksField.appendChild(linksLabel);
+    linksField.appendChild(linkRows);
+    linksField.appendChild(addLinkBtn);
+    body.appendChild(linksField);
+
+    // -- Tags
+    const tagsField = document.createElement('div');
+    tagsField.className = 'modal-field';
+    const tagsLabel = document.createElement('label');
+    tagsLabel.textContent = 'Tags';
+    const chipsBox = document.createElement('div');
+    chipsBox.className = 'tag-chips';
+
+    const tagInput = document.createElement('input');
+    tagInput.type = 'text';
+    tagInput.className = 'tag-input';
+    tagInput.placeholder = 'Type tags; space starts a new tag';
+    tagInput.spellcheck = false;
+
+    function rebuildChips() {
+      // Remove all existing chips, leave the input as last child
+      [...chipsBox.querySelectorAll('.tag-chip')].forEach(c => c.remove());
+      draft.tags.forEach((tag, i) => {
+        const chip = document.createElement('span');
+        chip.className = 'tag-chip';
+        applyTagColorsToElement(chip, tag);
+        chip.appendChild(document.createTextNode('#' + tag));
+        const x = document.createElement('button');
+        x.className = 'tag-chip-x';
+        x.innerHTML = '×';
+        x.title = 'Remove tag';
+        x.addEventListener('click', () => {
+          draft.tags.splice(i, 1);
+          rebuildChips();
+        });
+        chip.appendChild(x);
+        chipsBox.insertBefore(chip, tagInput);
+      });
+    }
+
+    function addTagTokens(tokenStrings) {
+      const toAdd = tokenStrings
+        .map((t) => String(t || '').trim().replace(/^#/, ''))
+        .filter(Boolean);
+      if (!toAdd.length) return;
+      draft.tags.push(...toAdd);
+      draft.tags = dedupeTagsCaseInsensitive(draft.tags);
+      rebuildChips();
+    }
+
+    function commitTagFromInput() {
+      const raw = tagInput.value.trim();
+      if (!raw) return;
+      addTagTokens(raw.split(/[\s,]+/));
+      tagInput.value = '';
+    }
+
+    tagInput.addEventListener('keydown', (e) => {
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        const v = tagInput.value;
+        const sel = tagInput.selectionStart ?? v.length;
+        const left = v.slice(0, sel);
+        const after = v.slice(sel);
+        let i = left.length;
+        while (i > 0 && /\s/.test(left[i - 1])) i--;
+        let j = i;
+        while (j > 0 && !/\s/.test(left[j - 1])) j--;
+        const word = left.slice(j, i).trim().replace(/^#/, '');
+        const before = left.slice(0, j);
+        if (word) addTagTokens([word]);
+        tagInput.value = before + after;
+        requestAnimationFrame(() => {
+          const pos = before.length;
+          tagInput.setSelectionRange(pos, pos);
+        });
+      } else if (e.key === ',') {
+        e.preventDefault();
+        commitTagFromInput();
+      } else if (e.key === 'Backspace' && tagInput.value === '' && draft.tags.length > 0) {
+        e.preventDefault();
+        draft.tags.pop();
+        rebuildChips();
+      }
+    });
+    tagInput.addEventListener('blur', () => {
+      // commit any partial input on blur (but not when clicking save/cancel)
+      if (tagInput.value.trim()) commitTagFromInput();
+    });
+
+    chipsBox.appendChild(tagInput);
+    rebuildChips();
+
+    chipsBox.addEventListener('click', () => tagInput.focus());
+
+    tagsField.appendChild(tagsLabel);
+    tagsField.appendChild(chipsBox);
+    body.appendChild(tagsField);
+
+    // Footer
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => closeModal());
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-primary';
+    saveBtn.textContent = 'Save';
+    saveBtn.addEventListener('click', () => {
+      // commit any pending tag input
+      if (tagInput.value.trim()) commitTagFromInput();
+      // Apply draft to live card
+      const f = findCard(card.id);
+      if (f) {
+        const c = f.col.cards[f.idx];
+        c.description = draft.description.trim();
+        c.links = draft.links
+          .map(l => ({ name: (l.name || '').trim(), url: (l.url || '').trim() }))
+          .filter(l => l.url !== '')
+          .map(l => ({ name: l.name || l.url, url: l.url }));
+        c.tags = dedupeTagsCaseInsensitive(draft.tags.map((t) => t.trim()).filter(Boolean));
+      }
+      saveState();
+      renderRows();
+      closeModal();
+    });
+    footer.appendChild(cancelBtn);
+    footer.appendChild(saveBtn);
+
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    backdrop.appendChild(modal);
+    modalMount.appendChild(backdrop);
+
+    // Backdrop click closes; escape closes
+    backdrop.addEventListener('click', () => closeModal());
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        closeModal();
+        window.removeEventListener('keydown', escHandler);
+      }
+    };
+    window.addEventListener('keydown', escHandler);
+
+    // Focus first field
+    requestAnimationFrame(() => descTa.focus());
+  }
+
+  // ============================================================
+  // PANEL DRAG-RESIZE / OPEN / CLOSE
+  // ============================================================
+  const panelResize = document.getElementById('panelResize');
+  const PANEL_MIN = 400;
+  const PANEL_MAX = 600;
+  const SNAP_CLOSE = 120;
+  const COLLAPSED_W = 36;
+  const PANEL_DRAG_THRESHOLD = 6; // px movement before treating as resize drag (below = click toggle)
+
+  function applyPanelState() {
+    sidePanel.classList.toggle('collapsed', !!state.panelCollapsed);
+    if (!state.panelCollapsed) {
+      const w = Math.max(PANEL_MIN, Math.min(PANEL_MAX, state.panelWidth || PANEL_MIN));
+      sidePanel.style.width = w + 'px';
+      sidePanel.style.flexBasis = w + 'px';
+    } else {
+      sidePanel.style.width = '';
+      sidePanel.style.flexBasis = '';
+    }
+  }
+
+  let resizeState = null; // { startX, startY, startWidth, tentative }
+  panelResize.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeState = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startWidth: state.panelCollapsed ? COLLAPSED_W : sidePanel.getBoundingClientRect().width,
+      tentative: true
+    };
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!resizeState) return;
+    if (resizeState.tentative) {
+      const dx = e.clientX - resizeState.startX;
+      const dy = e.clientY - resizeState.startY;
+      if (Math.abs(dx) + Math.abs(dy) < PANEL_DRAG_THRESHOLD) return;
+      resizeState.tentative = false;
+      panelResize.classList.add('active');
+      document.body.classList.add('resizing-panel');
+    }
+    e.preventDefault();
+    const raw = resizeState.startWidth - (e.clientX - resizeState.startX);
+    if (raw < SNAP_CLOSE) {
+      if (!sidePanel.classList.contains('collapsed')) {
+        sidePanel.classList.add('collapsed');
+        sidePanel.style.width = '';
+        sidePanel.style.flexBasis = '';
+      }
+    } else {
+      const w = Math.max(PANEL_MIN, Math.min(PANEL_MAX, raw));
+      sidePanel.classList.remove('collapsed');
+      sidePanel.style.width = w + 'px';
+      sidePanel.style.flexBasis = w + 'px';
+    }
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (!resizeState) return;
+    if (resizeState.tentative) {
+      state.panelCollapsed = !state.panelCollapsed;
+      if (!state.panelCollapsed) {
+        state.panelWidth = Math.max(PANEL_MIN, Math.min(PANEL_MAX, state.panelWidth || PANEL_MIN));
+      }
+      resizeState = null;
+      applyPanelState();
+      saveState();
+      return;
+    }
+    const finalRaw = resizeState.startWidth - (e.clientX - resizeState.startX);
+    if (finalRaw < SNAP_CLOSE) {
+      state.panelCollapsed = true;
+    } else {
+      state.panelCollapsed = false;
+      state.panelWidth = Math.max(PANEL_MIN, Math.min(PANEL_MAX, finalRaw));
+    }
+    resizeState = null;
+    panelResize.classList.remove('active');
+    document.body.classList.remove('resizing-panel');
+    applyPanelState();
+    saveState();
+  });
+
+  // ============================================================
+  // PWA (manifest + minimal service worker — all from this document)
+  // ============================================================
+  function installProgressiveWebAppShell() {
+    const iconHref = new URL('icon.svg', location.href).href;
+    const baseHref = new URL('./', location.href).href;
+    const manifest = {
+      name: 'Local Kanban',
+      short_name: 'LKB',
+      description: 'Kanban with unsorted inbox — data stays in your browser.',
+      start_url: baseHref,
+      scope: baseHref,
+      display: 'standalone',
+      orientation: 'any',
+      background_color: '#1a1a1a',
+      theme_color: '#1a1a1a',
+      icons: [
+        {
+          src: iconHref,
+          sizes: '512x512',
+          type: 'image/svg+xml',
+          purpose: 'any maskable',
+        },
+      ],
+    };
+    const manifestUrl = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' }));
+    const mLink = document.createElement('link');
+    mLink.rel = 'manifest';
+    mLink.href = manifestUrl;
+    document.head.appendChild(mLink);
+
+    if (!('serviceWorker' in navigator)) return;
+    const swSrc =
+      "self.addEventListener('install', function (e) { self.skipWaiting(); });" +
+      "self.addEventListener('activate', function (e) { e.waitUntil(self.clients.claim()); });";
+    const swUrl = URL.createObjectURL(new Blob([swSrc], { type: 'application/javascript' }));
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register(swUrl, { scope: new URL('.', location.href).href }).catch((err) => {
+        console.warn('LKB: service worker not registered', err);
+      });
+    });
+  }
+
+  // ============================================================
+  // INIT
+  // ============================================================
+  installProgressiveWebAppShell();
+  applyPanelState();
+  // Restore search input from state
+  searchInput.value = state.searchQuery || '';
+  searchWrap.classList.toggle('has-value', (state.searchQuery || '').length > 0);
+  if (state.tagFilterMode !== 'any' && state.tagFilterMode !== 'all') state.tagFilterMode = 'all';
+  updateTagModeToggleUI();
+  renderAll();
+</script>
+
+</body>
+</html>
